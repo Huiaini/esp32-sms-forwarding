@@ -1,8 +1,8 @@
-# 低成本短信转发器（ESP32-C3 + ML307R-DC）
+# 低成本短信转发器（ESP32-C3 + ML307R/C/A）
 
 > 本项目来源于 https://github.com/chenxuuu/sms_forwarding ，在此基础上改用 C++17 + PlatformIO 进行重构，并增加了更多推送方式和功能。
 
-基于 ESP32-C3 和 ML307R-DC 的低成本短信转发器，支持多种推送方式，适合需要远程接收短信通知的场景，如验证码接收、物联网设备监控等。
+基于 ESP32-C3 和 ML307R/C/A 的低成本短信转发器，支持多种推送方式，适合需要远程接收短信通知的场景，如验证码接收、物联网设备监控等。
 
 > 视频教程：[B站视频](https://www.bilibili.com/video/BV1cSmABYEiX)
 
@@ -78,8 +78,8 @@
 
 如果希望自行焊接硬件，参考下面的硬件搭配，总成本约¥27.8，仅支持移动/联通卡。
 
-- ESP32C3开发板，当前选用[ESP32C3 Super Mini](https://item.taobao.com/item.htm?id=852057780489&skuId=5813710390565)，¥9.5包邮
-- ML307R-DC开发板，当前选用[小蓝鲸ML307R-DC核心板](https://item.taobao.com/item.htm?id=797466121802&skuId=5722077108045)，¥16.3包邮
+- ESP32-C3开发板，当前选用[ESP32-C3 Super Mini](https://item.taobao.com/item.htm?id=852057780489&skuId=5813710390565)，¥9.5包邮
+- ML307R/C/A开发板，当前选用[小蓝鲸ML307R/C/A核心板](https://item.taobao.com/item.htm?id=797466121802&skuId=5722077108045)，¥16.3包邮
 - [4G FPC天线](https://item.taobao.com/item.htm?id=797466121802&skuId=5722077108045)，¥2，与核心板同购
 
 若希望直接使用成品，可选直接购以下套件，支持移动/联通/电信卡：
@@ -89,12 +89,12 @@
 
 ## 硬件连接
 
-ESP32-C3 与 ML307R-DC 通过串口（UART）连接，接线如下：
+ESP32-C3 与 ML307R/C/A 通过串口（UART）连接，接线如下：
 
 ```
 ┌───────────────────────────────────────────────┐
 |                                               |
-|   ESP32C3 Super Mini      ML307R-DC核心板     |
+|   ESP32-C3 Super Mini      ML307R/C/A核心板     |
 | ┌───────────────────┐    ┌─────────────────┐ |
 └─┼─ GPIO5 (MODEM_EN) │    │                 │ |
   │       GPIO3 (TX) ─┼───►│ RX              │ |
@@ -115,7 +115,7 @@ ESP32-C3 与 ML307R-DC 通过串口（UART）连接，接线如下：
                            └─────────────────┘
 ```
 
-模块 EN 引脚与 ESP32-C3 的 GPIO5 连接，可通过软件控制模块上下电。可通过 USB 连接 ESP32-C3 进行编程和供电，正常工作时虚拟串口数据将直接转发至 ML307R-DC，方便调试。
+模块 EN 引脚与 ESP32-C3 的 GPIO5 连接，可通过软件控制模块上下电。可通过 USB 连接 ESP32-C3 进行编程和供电，正常工作时虚拟串口数据将直接转发至 ML307R/C/A，方便调试。
 
 ## 快速开始
 
@@ -132,10 +132,10 @@ ESP32-C3 与 ML307R-DC 通过串口（UART）连接，接线如下：
 pip install "esptool>=4.8"
 
 # 全量烧录（推荐，地址 0x0）
-esptool --chip esp32c3 --baud 921600 write_flash 0x0 full.bin
+esptool --chip ESP32-C3 --baud 921600 write_flash 0x0 full.bin
 
 # 单独更新 Web UI 文件系统（地址 0x290000）
-esptool --chip esp32c3 --baud 921600 write_flash 0x290000 littlefs.bin
+esptool --chip ESP32-C3 --baud 921600 write_flash 0x290000 littlefs.bin
 ```
 
 ### 固件文件说明
@@ -156,10 +156,10 @@ esptool --chip esp32c3 --baud 921600 write_flash 0x290000 littlefs.bin
 6. 在推送通道区域添加并配置推送方式，保存配置
 
 
-## Maker Go ESP32C3 Supermini 引脚定义
+## Maker Go ESP32-C3 Supermini 引脚定义
 
-- [makergo_esp32c3_supermini.json](boards/makergo_esp32c3_supermini.json)
-- [pins_arduino.h](custom_variants/super_mini_esp32c3/pins_arduino.h)
+- [makergo_ESP32-C3_supermini.json](boards/makergo_ESP32-C3_supermini.json)
+- [pins_arduino.h](custom_variants/super_mini_ESP32-C3/pins_arduino.h)
 
 ## 软件组成
 
@@ -176,7 +176,7 @@ esptool --chip esp32c3 --baud 921600 write_flash 0x290000 littlefs.bin
 - `data/index.html` — 配置管理页面（LittleFS）
 - `data/tools.html` — 工具箱页面（LittleFS）
 
-**ML307R-DC**：运行出厂 AT 固件，无需改动。
+**ML307R/C/A**：运行出厂 AT 固件，无需改动。
 
 **主要依赖库**（`platformio.ini` 自动管理）：
 
