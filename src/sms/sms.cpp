@@ -151,6 +151,10 @@ static bool sendOnePDU(const char* phoneNumber, const char* message,
     LOG("SMS", "PDU编码失败，错误码: %d", pduLen);
     return false;
   }
+  if (pdu.getOverflow()) {
+    LOG("SMS", "PDU编码溢出！内容长度超出 pdulib 限制");
+    return false;
+  }
   LOG("SMS", "PDU长度=%d，PDU前16字符: %.16s", pduLen, pdu.getSMS());
 
   String cmgsCmd = "AT+CMGS="; cmgsCmd += pduLen;
@@ -208,7 +212,9 @@ bool sendSMSPDU(const char* phoneNumber, const char* message) {
   bool ucs2      = hasMultibyte(message);
   int totalChars = countUcs2CharsRaw(message);
   int singleMax  = ucs2 ? 70  : 160;
-  int partMax    = ucs2 ? 67  : 153;
+  // pdulib 使用 7 字节 UDH（IEI=8，2字节引用号）= 8 septets
+  // GSM-7: 160 - 8 = 152；UCS-2: (140 - 7) / 2 = 66
+  int partMax    = ucs2 ? 66  : 152;
 
   if (totalChars <= singleMax) {
     bool ok = sendOnePDU(phoneNumber, message, 0, 0, 0);
