@@ -6,6 +6,7 @@
 #include "logger.h"
 #include <pdulib.h>
 #include <WiFi.h>
+#include <esp_task_wdt.h>
 
 #define SERIAL_BUFFER_SIZE 500
 
@@ -102,14 +103,56 @@ static int findOrCreateConcatSlot(int refNumber, const char* sender, int totalPa
 // forward declaration
 static void processSmsContent(const char* sender, const char* text, const char* timestamp);
 
-bool sendSMSPDU(const char* phoneNumber, const char* message) {
-  LOG("SMS", "准备发送短信到 %s", phoneNumber);
+// ---------- multipart SMS helpers ----------
+
+static bool hasMultibyte(const char* s) {
+  while (*s) {
+    if ((unsigned char)*s >= 0x80) return true;
+    s++;
+  }
+  return false;
+}
+
+static int countUcs2CharsRaw(const char* s) {
+  int count = 0;
+  while (*s) {
+    unsigned char c = (unsigned char)*s;
+    if      (c < 0x80) { s += 1; count += 1; }
+    else if (c < 0xE0) { s += 2; count += 1; }
+    else if (c < 0xF0) { s += 3; count += 1; }
+    else               { s += 4; count += 2; } // emoji 等，UCS-2 代理对
+  }
+  return count;
+}
+
+// 返回 UTF-8 字符串中前 maxUcs2 个 UCS-2 字符所占的字节数
+static int ucs2ByteLen(const char* s, int maxUcs2) {
+  int count = 0, i = 0;
+  while (s[i]) {
+    unsigned char c = (unsigned char)s[i];
+    int bl, w;
+    if      (c < 0x80) { bl = 1; w = 1; }
+    else if (c < 0xE0) { bl = 2; w = 1; }
+    else if (c < 0xF0) { bl = 3; w = 1; }
+    else               { bl = 4; w = 2; }
+    if (count + w > maxUcs2) break;
+    count += w;
+    i += bl;
+  }
+  return i;
+}
+
+// 发送单条 PDU（可携带长短信参数，csms/numParts/partNum 全为 0 表示普通短信）
+static bool sendOnePDU(const char* phoneNumber, const char* message,
+                       unsigned short csms, unsigned char numParts, unsigned char partNum) {
   pdu.setSCAnumber();
-  int pduLen = pdu.encodePDU(phoneNumber, message);
+  int pduLen = pdu.encodePDU(phoneNumber, message, csms, numParts, partNum);
   if (pduLen < 0) {
     LOG("SMS", "PDU编码失败，错误码: %d", pduLen);
     return false;
   }
+  LOG("SMS", "PDU长度=%d，PDU前16字符: %.16s", pduLen, pdu.getSMS());
+
   String cmgsCmd = "AT+CMGS="; cmgsCmd += pduLen;
   while (Serial1.available()) Serial1.read();
   Serial1.println(cmgsCmd);
@@ -117,6 +160,7 @@ bool sendSMSPDU(const char* phoneNumber, const char* message) {
   unsigned long start = millis();
   bool gotPrompt = false;
   while (millis() - start < 5000) {
+    esp_task_wdt_reset();
     if (Serial1.available()) {
       char c = Serial1.read();
       if (c == '>') { gotPrompt = true; break; }
@@ -124,20 +168,73 @@ bool sendSMSPDU(const char* phoneNumber, const char* message) {
   }
   if (!gotPrompt) { LOG("SMS", "未收到>提示符"); return false; }
 
+  // getSMS() 末尾已含 CTRL+Z (0x1A)，直接发送，无需再追加
   Serial1.print(pdu.getSMS());
-  Serial1.write(0x1A);
 
   start = millis();
   String resp;
+  bool cmgsSeen = false;
+  unsigned long cmgsSeenAt = 0;
+
   while (millis() - start < 30000) {
+    esp_task_wdt_reset();
     while (Serial1.available()) {
       char c = Serial1.read(); resp += c;
-      if (resp.indexOf("OK")    >= 0) { LOG("SMS", "短信发送成功"); return true; }
-      if (resp.indexOf("ERROR") >= 0) { LOG("SMS", "短信发送失败"); return false; }
+      if (!cmgsSeen && resp.indexOf("+CMGS:") >= 0) {
+        cmgsSeen    = true;
+        cmgsSeenAt  = millis();
+      }
+      // OK 是事务完成的最终标志
+      if (resp.indexOf("OK") >= 0) { LOG("SMS", "短信发送成功"); return true; }
+      // 没有 +CMGS: 就出现 ERROR，才是真正失败
+      if (!cmgsSeen && resp.indexOf("ERROR") >= 0) {
+        LOG("SMS", "短信发送失败，响应: %s", resp.c_str());
+        return false;
+      }
+    }
+    // +CMGS: 已确认但 2s 内没收到 OK（modem 已入队）→ 视为成功
+    if (cmgsSeen && millis() - cmgsSeenAt >= 2000) {
+      LOG("SMS", "短信发送成功（+CMGS已确认）");
+      return true;
     }
   }
-  LOG("SMS", "短信发送超时");
+  LOG("SMS", "短信发送超时，已收到: %s", resp.c_str());
   return false;
+}
+
+bool sendSMSPDU(const char* phoneNumber, const char* message) {
+  LOG("SMS", "准备发送短信到 %s", phoneNumber);
+
+  bool ucs2      = hasMultibyte(message);
+  int totalChars = countUcs2CharsRaw(message);
+  int singleMax  = ucs2 ? 70  : 160;
+  int partMax    = ucs2 ? 67  : 153;
+
+  if (totalChars <= singleMax) {
+    bool ok = sendOnePDU(phoneNumber, message, 0, 0, 0);
+    return ok;
+  }
+
+  // 长短信：拆分为多段发送
+  int numParts = (totalChars + partMax - 1) / partMax;
+  static uint8_t csmsRef = 1;
+  uint8_t ref = csmsRef++;
+  if (csmsRef == 0) csmsRef = 1; // 避免 ref=0（库要求非零）
+
+  LOG("SMS", "长短信，共 %d 段 (ref=%d, 编码=%s)", numParts, ref, ucs2 ? "UCS-2" : "GSM-7");
+
+  const char* ptr = message;
+  for (int part = 1; part <= numParts; part++) {
+    int byteLen = ucs2ByteLen(ptr, partMax);
+    String chunk = String(ptr).substring(0, byteLen);
+    LOG("SMS", "发送第 %d/%d 段", part, numParts);
+    if (!sendOnePDU(phoneNumber, chunk.c_str(), ref, (uint8_t)numParts, (uint8_t)part)) {
+      LOG("SMS", "第 %d 段发送失败，中止", part);
+      return false;
+    }
+    ptr += byteLen;
+  }
+  return true;
 }
 
 // forward declaration for blacklist check

@@ -2,6 +2,7 @@
 #include <WiFi.h>
 #include <LittleFS.h>
 #include <ESPAsyncWebServer.h>
+#include <esp_core_dump.h>
 
 #include "wifi/wifi_manager.h"
 #include "logger.h"
@@ -48,6 +49,11 @@ static void modemPowerCycle() {
 // ---------- Arduino entry points ----------
 
 void setup() {
+  // 若 core dump 分区数据损坏（上次崩溃遗留），自动清除，消除启动报错
+  if (esp_core_dump_image_check() != ESP_OK) {
+    esp_core_dump_image_erase();
+  }
+
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, HIGH);
 
@@ -115,18 +121,17 @@ void loop() {
     }
   }
   checkConcatTimeout();
-  if (Serial.available()) Serial1.write(Serial.read());
   checkSerial1URC();
   simTick();
 
   // SIM 就绪后抓取运营商/号码/信号，并在 NTP 未同步时从 SIM NITZ 同步时间
   if (!s_simInfoFetched && simGetState() == SIM_READY) {
     s_simInfoFetched = true;
-    simFetchInfo();
     if (!timeSynced) {
       timeModuleSyncFromSIM();
       timeSynced = (time(nullptr) >= 1000000);
     }
   }
+
   rebootTick();
 }

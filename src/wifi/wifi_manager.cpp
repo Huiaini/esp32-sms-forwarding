@@ -33,22 +33,22 @@ void wifiManagerInit() {
     const char* pass = config.wifiList[w].password.c_str();
     LOG("WiFi", "尝试第 %d/%d 条WiFi: %s", w + 1, config.wifiCount, ssid);
 
-    for (int attempt = 1; attempt <= 3; attempt++) {
+    for (int attempt = 1; attempt <= 5; attempt++) {
       WiFi.begin(ssid, pass, 0, nullptr, true);
 
       unsigned long start = millis();
       while (millis() - start < 3000) {
         if (WiFi.status() == WL_CONNECTED) {
           s_mode = WIFI_MODE_STA_CONNECTED;
-          LOG("WiFi", "第 %d/%d 条WiFi第 %d/3 次连接成功，IP: %s", w + 1, config.wifiCount, attempt, WiFi.localIP().toString().c_str());
+          LOG("WiFi", "第 %d/%d 条WiFi第 %d/5 次连接成功，IP: %s", w + 1, config.wifiCount, attempt, WiFi.localIP().toString().c_str());
           return;
         }
         delay(100);
       }
 
-      LOG("WiFi", "第 %d/%d 条WiFi第 %d/3 次连接超时", w + 1, config.wifiCount, attempt);
+      LOG("WiFi", "第 %d/%d 条WiFi第 %d/5 次连接超时", w + 1, config.wifiCount, attempt);
       WiFi.disconnect(true);
-      delay(200);
+      delay(500);
     }
   }
 

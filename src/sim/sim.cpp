@@ -256,6 +256,16 @@ void simTick() {
   }
 
   simTrafficTick();
+
+  // 若号码仍未知（部分运营商 AT+CNUM 需注网完成后才返回），每 3s 重试一次
+  if (s_state == SIM_READY && s_phoneNum == "未知") {
+    static unsigned long lastPhoneRetryMs = 0;
+    if (millis() - lastPhoneRetryMs >= 3000) {
+      lastPhoneRetryMs = millis();
+      LOG("SIM", "本机号码未知，重新获取...");
+      simFetchInfo();
+    }
+  }
 }
 
 // ---------- SIM info cache fetch (called after SIM_READY) ----------

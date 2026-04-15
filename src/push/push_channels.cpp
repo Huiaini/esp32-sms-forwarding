@@ -2,6 +2,7 @@
 #include "logger.h"
 #include "sms/sms.h"
 #include <HTTPClient.h>
+#include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
 #include <mbedtls/md.h>
 #include <base64.h>
@@ -52,11 +53,23 @@ static int64_t getUtcMillis() {
   return (int64_t)time(nullptr) * 1000LL;
 }
 
+// 文件级静态 WiFiClientSecure，推送均为顺序执行，复用安全
+static WiFiClientSecure _secureClient;
+
+static void httpBegin(HTTPClient& http, const String& url) {
+  if (url.startsWith("https://")) {
+    _secureClient.setInsecure();
+    http.begin(_secureClient, url);
+  } else {
+    http.begin(url);
+  }
+}
+
 // ---------- channel implementations ----------
 
 bool sendPostJson(const PushChannel& ch, const String& sender, const String& message, const String& timestamp, const String& renderedBody) {
   HTTPClient http;
-  http.begin(ch.url);
+  httpBegin(http, ch.url);
   http.addHeader("Content-Type", "application/json");
 
   String body;
@@ -79,7 +92,7 @@ bool sendPostJson(const PushChannel& ch, const String& sender, const String& mes
 
 bool sendBark(const PushChannel& ch, const String& sender, const String& message, const String& timestamp, const String& renderedBody) {
   HTTPClient http;
-  http.begin(ch.url);
+  httpBegin(http, ch.url);
   http.addHeader("Content-Type", "application/json");
 
   JsonDocument doc;
@@ -104,7 +117,7 @@ bool sendGet(const PushChannel& ch, const String& sender, const String& message,
   url += "&timestamp=" + urlEncode(timestamp);
 
   LOG("Push", "GET %s", url.c_str());
-  http.begin(url);
+  httpBegin(http, url);
   int code = http.GET();
   LOG("Push", "响应码: %d", code);
   http.end();
@@ -124,7 +137,7 @@ bool sendDingtalk(const PushChannel& ch, const String& sender, const String& mes
     webhookUrl += "timestamp=" + String(tsBuf) + "&sign=" + sign;
   }
 
-  http.begin(webhookUrl);
+  httpBegin(http, webhookUrl);
   http.addHeader("Content-Type", "application/json");
 
   String content = renderedBody.length() > 0 ? renderedBody
@@ -146,7 +159,7 @@ bool sendDingtalk(const PushChannel& ch, const String& sender, const String& mes
 bool sendPushPlus(const PushChannel& ch, const String& sender, const String& message, const String& timestamp, const String& renderedBody) {
   HTTPClient http;
   String url = ch.url.length() > 0 ? ch.url : "http://www.pushplus.plus/send";
-  http.begin(url);
+  httpBegin(http, url);
   http.addHeader("Content-Type", "application/json");
 
   String channelValue = "wechat";
@@ -179,7 +192,7 @@ bool sendPushPlus(const PushChannel& ch, const String& sender, const String& mes
 bool sendServerChan(const PushChannel& ch, const String& sender, const String& message, const String& timestamp, const String& renderedBody) {
   HTTPClient http;
   String url = ch.url.length() > 0 ? ch.url : ("https://sctapi.ftqq.com/" + ch.key1 + ".send");
-  http.begin(url);
+  httpBegin(http, url);
   http.addHeader("Content-Type", "application/x-www-form-urlencoded");
 
   String desp = renderedBody.length() > 0 ? renderedBody
@@ -197,7 +210,7 @@ bool sendServerChan(const PushChannel& ch, const String& sender, const String& m
 bool sendCustom(const PushChannel& ch, const String& sender, const String& message, const String& timestamp, const String& renderedBody) {
   // 类型7（POST请求）：使用 renderedBody（非空）或空 body（FR-008）
   HTTPClient http;
-  http.begin(ch.url);
+  httpBegin(http, ch.url);
   http.addHeader("Content-Type", "application/json");
 
   String body = renderedBody;  // 可为空（FR-008: 留空时发送空 POST body）
@@ -210,7 +223,7 @@ bool sendCustom(const PushChannel& ch, const String& sender, const String& messa
 
 bool sendFeishu(const PushChannel& ch, const String& sender, const String& message, const String& timestamp, const String& renderedBody) {
   HTTPClient http;
-  http.begin(ch.url);
+  httpBegin(http, ch.url);
   http.addHeader("Content-Type", "application/json");
 
   JsonDocument doc;
@@ -250,7 +263,7 @@ bool sendGotify(const PushChannel& ch, const String& sender, const String& messa
   String url = ch.url;
   if (!url.endsWith("/")) url += "/";
   url += "message?token=" + ch.key1;
-  http.begin(url);
+  httpBegin(http, url);
   http.addHeader("Content-Type", "application/json");
 
   String msg = renderedBody.length() > 0 ? renderedBody : (message + "\n\n时间: " + timestamp);
@@ -273,7 +286,7 @@ bool sendTelegram(const PushChannel& ch, const String& sender, const String& mes
   String baseUrl = ch.url.length() > 0 ? ch.url : "https://api.telegram.org";
   if (baseUrl.endsWith("/")) baseUrl.remove(baseUrl.length() - 1);
   String url = baseUrl + "/bot" + ch.key2 + "/sendMessage";
-  http.begin(url);
+  httpBegin(http, url);
   http.addHeader("Content-Type", "application/json");
 
   String text = renderedBody.length() > 0 ? renderedBody
@@ -313,7 +326,7 @@ bool sendWechatWork(const PushChannel& ch, const String& sender, const String& m
     webhookUrl += "timestamp=" + String(tsBuf) + "&sign=" + sign;
   }
 
-  http.begin(webhookUrl);
+  httpBegin(http, webhookUrl);
   http.addHeader("Content-Type", "application/json");
   http.setTimeout(10000);
 
@@ -341,14 +354,9 @@ bool sendSmsPush(const PushChannel& ch, const String& sender, const String& mess
   if (renderedBody.length() > 0) {
     content = renderedBody;
   } else {
-    String prefix = "[转发]发件人: " + sender + "\n内容: ";
-    content = prefix + message;
-    if ((int)content.length() > 70) {
-      int maxMsg = 67 - (int)prefix.length();
-      if (maxMsg < 0) maxMsg = 0;
-      content = prefix + message.substring(0, maxMsg) + "[截断]";
-    }
+    content = "[转发]发件人: " + sender + "\n内容: " + message;
   }
+  // sendSMSPDU 内部自动处理长短信拆分，无需手动截断
   LOG("Push", "SMS备份推送到: %s", ch.url.c_str());
   bool ok = sendSMSPDU(ch.url.c_str(), content.c_str());
   if (!ok) LOG("Push", "SMS备份推送失败");
