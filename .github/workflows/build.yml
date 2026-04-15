@@ -94,32 +94,34 @@ jobs:
         if: github.event_name != 'pull_request'
         run: |
           BUILD_DIR=".pio/build/makergo_esp32c3_supermini"
-          # full.bin: 首次安装用（含 bootloader + 分区表，会清空 NVS）
+          # full-{VERSION_TAG}.bin: 首次安装用（含 bootloader + 分区表，会清空 NVS）
           # 使用 --flash_mode keep --flash_freq keep 避免覆盖 bootloader 内部已编译的
           # flash 参数字节，防止使 ESP-IDF 附加的 SHA256 摘要失效（否则 ROM 校验失败
           # 导致 ets_loader.c 78 崩溃并死循环重启）
           esptool --chip esp32c3 merge_bin \
             --flash_mode keep --flash_freq keep --flash_size 4MB \
-            -o "${BUILD_DIR}/full.bin" \
+            -o "${BUILD_DIR}/full-${VERSION_TAG}.bin" \
             0x0      "${BUILD_DIR}/bootloader.bin" \
             0x8000   "${BUILD_DIR}/partitions.bin" \
             0x10000  "${BUILD_DIR}/firmware.bin" \
             0x290000 "${BUILD_DIR}/littlefs.bin"
-          # update.bin: 升级用（从 0x10000 开始，跳过 NVS，保留 WiFi 等配置）
+          # update-{VERSION_TAG}.bin: 升级用（从 0x10000 开始，跳过 NVS，保留 WiFi 等配置）
           esptool --chip esp32c3 merge_bin \
             --flash_mode keep --flash_freq keep --flash_size 4MB \
             --target-offset 0x10000 \
-            -o "${BUILD_DIR}/update.bin" \
+            -o "${BUILD_DIR}/update-${VERSION_TAG}.bin" \
             0x10000  "${BUILD_DIR}/firmware.bin" \
             0x290000 "${BUILD_DIR}/littlefs.bin"
+          # littlefs-{VERSION_TAG}.bin: 单独保存 LittleFS 镜像
+          cp "${BUILD_DIR}/littlefs.bin" "${BUILD_DIR}/littlefs-${VERSION_TAG}.bin"
 
       - name: Generate release notes
         if: github.event_name != 'pull_request'
         run: |
           BUILD_DIR=".pio/build/makergo_esp32c3_supermini"
-          HASH_FULL=$(sha256sum "${BUILD_DIR}/full.bin" | awk '{print $1}')
-          HASH_UPDATE=$(sha256sum "${BUILD_DIR}/update.bin" | awk '{print $1}')
-          HASH_LITTLEFS=$(sha256sum "${BUILD_DIR}/littlefs.bin" | awk '{print $1}')
+          HASH_FULL=$(sha256sum "${BUILD_DIR}/full-${VERSION_TAG}.bin" | awk '{print $1}')
+          HASH_UPDATE=$(sha256sum "${BUILD_DIR}/update-${VERSION_TAG}.bin" | awk '{print $1}')
+          HASH_LITTLEFS=$(sha256sum "${BUILD_DIR}/littlefs-${VERSION_TAG}.bin" | awk '{print $1}')
           cat > release_notes.md << EOF
           ## 固件版本: ${VERSION_TAG}
 
@@ -133,9 +135,9 @@ jobs:
 
           | 文件名 | 用途 | 写入偏移 |
           |--------|------|----------|
-          | full.bin | 首次安装（含 bootloader + Web UI，**会清空所有配置**） | \`0x0\` |
-          | update.bin | 固件升级（**保留 WiFi 等配置**，含 Web UI） | \`0x10000\` |
-          | littlefs.bin | 单独更新 Web UI 文件系统 | \`0x290000\` |
+          | full-${VERSION_TAG}.bin | 首次安装（含 bootloader + Web UI，**会清空所有配置**） | \`0x0\` |
+          | update-${VERSION_TAG}.bin | 固件升级（**保留 WiFi 等配置**，含 Web UI） | \`0x10000\` |
+          | littlefs-${VERSION_TAG}.bin | 单独更新 Web UI 文件系统 | \`0x290000\` |
 
           ## 烧录说明
 
@@ -168,26 +170,26 @@ jobs:
 
           **首次安装**（新设备或需要重置所有配置）：
           \`\`\`bash
-          esptool --chip esp32c3 --baud 460800 write_flash 0x0 full.bin
+          esptool --chip esp32c3 --baud 460800 write_flash 0x0 full-${VERSION_TAG}.bin
           \`\`\`
 
           **固件升级**（保留 WiFi 等配置，推荐日常更新）：
           \`\`\`bash
-          esptool --chip esp32c3 --baud 460800 write_flash 0x10000 update.bin
+          esptool --chip esp32c3 --baud 460800 write_flash 0x10000 update-${VERSION_TAG}.bin
           \`\`\`
 
           **仅更新 Web UI**（保留固件和配置）：
           \`\`\`bash
-          esptool --chip esp32c3 --baud 460800 write_flash 0x290000 littlefs.bin
+          esptool --chip esp32c3 --baud 460800 write_flash 0x290000 littlefs-${VERSION_TAG}.bin
           \`\`\`
 
           ## SHA256 校验
 
           | 文件名 | SHA256 |
           |--------|--------|
-          | full.bin | ${HASH_FULL} |
-          | update.bin | ${HASH_UPDATE} |
-          | littlefs.bin | ${HASH_LITTLEFS} |
+          | full-${VERSION_TAG}.bin | ${HASH_FULL} |
+          | update-${VERSION_TAG}.bin | ${HASH_UPDATE} |
+          | littlefs-${VERSION_TAG}.bin | ${HASH_LITTLEFS} |
           EOF
 
       - name: Publish GitHub Release
@@ -200,9 +202,9 @@ jobs:
           make_latest: "true"
           fail_on_unmatched_files: true
           files: |
-            .pio/build/makergo_esp32c3_supermini/full.bin
-            .pio/build/makergo_esp32c3_supermini/update.bin
-            .pio/build/makergo_esp32c3_supermini/littlefs.bin
+            .pio/build/makergo_esp32c3_supermini/full-${{ env.VERSION_TAG }}.bin
+            .pio/build/makergo_esp32c3_supermini/update-${{ env.VERSION_TAG }}.bin
+            .pio/build/makergo_esp32c3_supermini/littlefs-${{ env.VERSION_TAG }}.bin
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
