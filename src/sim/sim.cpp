@@ -4,7 +4,9 @@
 #include "sms/sms.h"
 #include "logger.h"
 #include "config/config.h"
-#include "email/email.h"
+#include "push/push.h"
+#include "time/time_module.h"
+#include <esp_task_wdt.h>
 
 // ---------- internal state ----------
 
@@ -14,6 +16,7 @@ static bool     s_needReinit = false;
 // SIM info cache (populated after SIM_READY)
 static String   s_carrier    = "未知";
 static String   s_signal     = "未知";
+static String   s_phoneNum   = "未知";
 
 // ---------- US2: 数据流量状态机 ----------
 
@@ -137,6 +140,12 @@ static bool runInitSequence() {
       return true;
     }
     LOG("SIM", "等待网络注册... %d/30", i + 1);
+    // 每次失败后等待 2 秒再重试，分段喂狗避免 TWDT 触发
+    unsigned long waitStart = millis();
+    while (millis() - waitStart < 2000) {
+      delay(100);
+      esp_task_wdt_reset();
+    }
   }
   LOG("SIM", "网络注册超时");
   return false;
@@ -200,7 +209,7 @@ void simHandleURC(const String& line) {
 
       // T028: SIM 事件通知（插入）
       if (config.simNotifyEnabled) {
-        sendEmailNotification("SIM 卡已插入", "SIM 卡已就绪，设备将重新初始化 SIM 模块");
+        sendPushNotification("设备", "SIM 卡已就绪，设备将重新初始化 SIM 模块", timeModuleGetDateStr(), MSG_TYPE_SIM);
       }
     }
     return;
@@ -215,7 +224,7 @@ void simHandleURC(const String& line) {
 
     // T028: SIM 事件通知（拔出）
     if (config.simNotifyEnabled && prev == SIM_READY) {
-      sendEmailNotification("SIM 卡已拔出", "SIM 卡已拔出，当前状态：未插入");
+      sendPushNotification("设备", "SIM 卡已拔出，当前状态：未插入", timeModuleGetDateStr(), MSG_TYPE_SIM);
     }
     return;
   }
@@ -282,12 +291,22 @@ void simFetchInfo() {
       }
     }
   }
+
+  // 查询本机号码
+  {
+    String num = simQueryPhoneNumber(3000);
+    if (num.length() > 0) {
+      s_phoneNum = num;
+      LOG("SIM", "本机号码: %s", s_phoneNum.c_str());
+    }
+  }
 }
 
 // ---------- Getter functions ----------
 
 String simGetCarrier() { return s_carrier; }
 String simGetSignal()  { return s_signal; }
+String simGetPhoneNum() { return s_phoneNum; }
 
 // ---------- URC 路由（由 SIM reader task 回调调用） ----------
 

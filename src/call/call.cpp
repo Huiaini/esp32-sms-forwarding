@@ -1,6 +1,5 @@
 #include "call.h"
 #include "push/push.h"
-#include "email/email.h"
 #include "sms/phone_utils.h"
 #include "sim/sim_dispatcher.h"
 #include "logger.h"
@@ -35,7 +34,6 @@ static void dispatchCallNotification(const String& callerNum) {
     String subject = "来电通知: " + callerNum;
 
     sendPushNotification(callerNum, message, String(ts), MSG_TYPE_CALL);
-    sendEmailNotification(subject.c_str(), message.c_str());
 
     s_lastNotifyMs = millis();
     LOG("Call", "来电通知已发送，号码: %s", callerNum.c_str());

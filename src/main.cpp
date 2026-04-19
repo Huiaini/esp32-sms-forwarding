@@ -2,7 +2,7 @@
 #include <WiFi.h>
 #include <LittleFS.h>
 #include <ESPAsyncWebServer.h>
-#include <esp_core_dump.h>
+#include <esp_task_wdt.h>
 
 #include "wifi/wifi_manager.h"
 #include "logger.h"
@@ -13,7 +13,6 @@
 #include "sms/sms.h"
 #include "push/push.h"
 #include "push/push_retry.h"
-#include "email/email.h"
 #include "http/http_server.h"
 #include "ota/ota_manager.h"
 
@@ -39,29 +38,37 @@ static void blinkShort(unsigned long gap = 500) {
   delay(gap);
 }
 
+static void delayWithWdt(unsigned long ms) {
+  unsigned long elapsed = 0;
+  while (elapsed < ms) {
+    unsigned long step = min((unsigned long)500, ms - elapsed);
+    delay(step);
+    esp_task_wdt_reset();
+    elapsed += step;
+  }
+}
+
 static void modemPowerCycle() {
   pinMode(MODEM_EN_PIN, OUTPUT);
   LOG("SIM", "EN 拉低：关闭模组");
   digitalWrite(MODEM_EN_PIN, LOW);
-  delay(1200);
+  delayWithWdt(1200);
   LOG("SIM", "EN 拉高：开启模组");
   digitalWrite(MODEM_EN_PIN, HIGH);
-  delay(6000);
+  delayWithWdt(6000);
 }
 
 // ---------- Arduino entry points ----------
 
 void setup() {
-  // 若 core dump 分区数据损坏（上次崩溃遗留），自动清除，消除启动报错
-  if (esp_core_dump_image_check() != ESP_OK) {
-    esp_core_dump_image_erase();
-  }
+  // 立即喂狗：框架初始化可能已消耗部分 TWDT 窗口
+  esp_task_wdt_reset();
 
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, HIGH);
 
   Serial.begin(115200);
-  delay(1500);
+  delayWithWdt(1500);  // 替换裸 delay：此时尚未有任何输出，必须喂狗
 
   Serial1.setRxBufferSize(500);
   Serial1.begin(115200, SERIAL_8N1, RXD, TXD);
@@ -77,12 +84,15 @@ void setup() {
   initConcatBuffer();
   loadConfig();
   loadRebootSchedule(rebootSchedule);
+  esp_task_wdt_reset();
 
   simInit();
+  esp_task_wdt_reset();
 
   // WiFi
   wifiManagerSetReconnectCallback([]{ timeModuleSyncNTP(); });
   wifiManagerInit();
+  esp_task_wdt_reset();
 
   // 时间同步：STA 模式下优先使用 NTP；AP 模式下等 SIM 就绪后从 NITZ 同步
   if (wifiManagerGetMode() == WIFI_MODE_STA_CONNECTED) {
@@ -98,11 +108,14 @@ void setup() {
   }
 
   // LittleFS — formatOnFail=true 保证首次烧录或分区损坏时自动格式化
+  // 格式化操作可能耗时数秒，需在前后喂狗
+  esp_task_wdt_reset();
   if (!LittleFS.begin(true)) {
     LOG("HTTP", "LittleFS 挂载失败，HTML 页面不可用");
   } else {
     LOG("HTTP", "LittleFS 挂载成功");
   }
+  esp_task_wdt_reset();
 
   setupHttpServer(server);
   otaInit();
@@ -115,9 +128,7 @@ void setup() {
 
   if (wifiManagerGetMode() == WIFI_MODE_STA_CONNECTED && isConfigValid()) {
     LOG("WiFi", "配置有效，发送启动通知...");
-    String subject = "短信转发器已启动";
-    String body = "设备已启动\n设备地址: " + getDeviceUrl();
-    sendEmailNotification(subject.c_str(), body.c_str());
+    sendPushNotification("设备", "设备已启动\n设备地址: " + getDeviceUrl(), timeModuleGetDateStr(), MSG_TYPE_SIM);
   }
 }
 
@@ -126,13 +137,14 @@ void loop() {
     static unsigned long lastUrlPrint = 0;
     if (millis() - lastUrlPrint >= 3000) {
       lastUrlPrint = millis();
-      LOG("HTTP", "⚠️ 请访问 %s 进行配置", getDeviceUrl().c_str());
+      LOG("HTTP", "⚠️ 当前号码: %s，请访问 %s 进行配置", simGetPhoneNum().c_str(), getDeviceUrl().c_str());
     }
   }
   checkConcatTimeout();
   callTick();
   simTick();
   pushRetryTick();
+  wifiManagerTick();
 
   // SIM 就绪后抓取运营商/信号，并在 NTP 未同步时从 SIM NITZ 同步时间
   if (!s_simInfoFetched && simGetState() == SIM_READY) {

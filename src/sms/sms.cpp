@@ -1,7 +1,6 @@
 #include "sms.h"
 #include "config/config.h"
 #include "push/push.h"
-#include "email/email.h"
 #include "logger.h"
 #include "phone_utils.h"
 #include <pdulib.h>
@@ -250,13 +249,12 @@ static void processAdminCommand(const char* sender, const char* text) {
       bool ok = sendSMSPDU(targetPhone.c_str(), smsContent.c_str());
       String subject = ok ? "短信发送成功" : "短信发送失败";
       String body = "命令: " + cmd + "\n目标号码: " + targetPhone + "\n结果: " + (ok ? "成功" : "失败");
-      sendEmailNotification(subject.c_str(), body.c_str());
+      LOG("SMS", "%s: %s", subject.c_str(), body.c_str());
     } else {
       LOG("SMS", "SMS命令格式错误");
-      sendEmailNotification("命令执行失败", "SMS命令格式错误，正确格式: SMS:号码:内容");
     }
   } else if (cmd.equals("RESET")) {
-    sendEmailNotification("重启命令已执行", "收到RESET命令，即将重启ESP32...");
+    LOG("SMS", "收到RESET命令，即将重启");
     delay(2000);
     ESP.restart();
   } else {
@@ -285,10 +283,6 @@ static void processSmsContent(const char* sender, const char* text, const char* 
   }
 
   sendPushNotification(String(sender), String(text), String(timestamp), MSG_TYPE_SMS);
-
-  String subject; subject += "短信"; subject += sender; subject += ","; subject += text;
-  String body;    body    += "来自："; body += sender; body += "，时间："; body += timestamp; body += "，内容："; body += text;
-  sendEmailNotification(subject.c_str(), body.c_str());
 }
 
 static bool isHexString(const String& str) {

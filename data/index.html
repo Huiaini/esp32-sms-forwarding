@@ -70,31 +70,7 @@
         </div>
 
         <div class="section">
-          <div class="section-title">📧 邮件通知设置</div>
-          <div class="form-group">
-            <label>SMTP服务器</label>
-            <input type="text" name="smtpServer" id="smtpServer" placeholder="smtp.qq.com">
-          </div>
-          <div class="form-group">
-            <label>SMTP端口</label>
-            <input type="number" name="smtpPort" id="smtpPort" placeholder="465">
-          </div>
-          <div class="form-group">
-            <label>邮箱账号</label>
-            <input type="text" name="smtpUser" id="smtpUser" placeholder="your@qq.com">
-          </div>
-          <div class="form-group">
-            <label>邮箱密码/授权码（留空不修改）</label>
-            <input type="password" name="smtpPass" placeholder="授权码">
-          </div>
-          <div class="form-group">
-            <label>接收邮件地址</label>
-            <input type="text" name="smtpSendTo" id="smtpSendTo" placeholder="receiver@example.com">
-          </div>
-        </div>
-
-        <div class="section">
-          <div class="section-title">🔗 推送通道设置</div>
+          <div class="section-title"> 推送通道设置</div>
           <div class="hint" style="margin-bottom:15px;">可同时启用多个推送通道，每个通道独立配置。支持POST JSON、Bark、GET、钉钉、PushPlus、Server酱、飞书、Gotify、Telegram、企业微信机器人、SMS短信 等方式。</div>
           <div id="pushStrategyGroup" style="display:block;margin-bottom:15px;padding:10px;background:#f0f0f0;border-radius:4px;">
             <label style="font-weight:bold;display:block;margin-bottom:8px;">推送策略</label>
@@ -407,10 +383,6 @@
     function fillForm(data) {
       g_adminPhone = data.adminPhone || '';
       document.getElementById('webUser').value    = data.webUser    || '';
-      document.getElementById('smtpServer').value = data.smtpServer || '';
-      document.getElementById('smtpPort').value   = data.smtpPort   || 465;
-      document.getElementById('smtpUser').value   = data.smtpUser   || '';
-      document.getElementById('smtpSendTo').value = data.smtpSendTo || '';
       document.getElementById('adminPhone').value = data.adminPhone  || '';
       document.getElementById('simNotifyEnabled').checked = !!data.simNotifyEnabled;
       document.getElementById('dataTrafficEnabled').checked = !!data.dataTraffic;

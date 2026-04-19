@@ -137,7 +137,7 @@ static void simReaderTask(void*) {
             s_activeCmd = nullptr;
         }
 
-        taskYIELD();
+        vTaskDelay(pdMS_TO_TICKS(5));
     }
 }
 

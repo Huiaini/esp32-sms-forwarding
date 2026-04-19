@@ -9,6 +9,56 @@
 #include <WiFi.h>
 #include <time.h>
 
+// 内部辅助：按通道配置分发单次推送（不含跳过判断）
+static bool _sendOneChannel(const PushChannel& ch, const String& sender, const String& message,
+                             const String& timestamp, const String& renderedBody) {
+  bool ok = false;
+  switch (ch.type) {
+    case PUSH_TYPE_POST_JSON:   ok = sendPostJson(ch, sender, message, timestamp, renderedBody);    break;
+    case PUSH_TYPE_BARK:        ok = sendBark(ch, sender, message, timestamp, renderedBody);         break;
+    case PUSH_TYPE_GET:         ok = sendGet(ch, sender, message, timestamp, renderedBody);          break;
+    case PUSH_TYPE_DINGTALK:    ok = sendDingtalk(ch, sender, message, timestamp, renderedBody);     break;
+    case PUSH_TYPE_PUSHPLUS:    ok = sendPushPlus(ch, sender, message, timestamp, renderedBody);     break;
+    case PUSH_TYPE_SERVERCHAN:  ok = sendServerChan(ch, sender, message, timestamp, renderedBody);   break;
+    case PUSH_TYPE_CUSTOM:      ok = sendCustom(ch, sender, message, timestamp, renderedBody);       break;
+    case PUSH_TYPE_FEISHU:      ok = sendFeishu(ch, sender, message, timestamp, renderedBody);       break;
+    case PUSH_TYPE_GOTIFY:      ok = sendGotify(ch, sender, message, timestamp, renderedBody);       break;
+    case PUSH_TYPE_TELEGRAM:    ok = sendTelegram(ch, sender, message, timestamp, renderedBody);     break;
+    case PUSH_TYPE_WECHAT_WORK: ok = sendWechatWork(ch, sender, message, timestamp, renderedBody);   break;
+    case PUSH_TYPE_SMS:         ok = sendSmsPush(ch, sender, message, timestamp, renderedBody);      break;
+    default:
+      LOG("Push", "未知推送类型: %d", (int)ch.type);
+      break;
+  }
+  return ok;
+}
+
+// 单通道推送：含跳过判断、构建消息上下文，供重试队列调用
+bool sendPushChannel(int channelIdx, const String& sender, const String& message,
+                     const String& timestamp, MsgType msgType) {
+  if (channelIdx < 0 || channelIdx >= config.pushCount) return false;
+  const PushChannel& ch = config.pushChannels[channelIdx];
+  if (!isPushChannelValid(ch)) return false;
+
+  bool wifiOk = (WiFi.status() == WL_CONNECTED);
+  if (ch.type >= PUSH_TYPE_POST_JSON && ch.type <= PUSH_TYPE_WECHAT_WORK && !wifiOk) return false;
+  if (ch.type == PUSH_TYPE_SMS && msgType == MSG_TYPE_SIM) return false;
+
+  MessageContext ctx;
+  ctx.sender    = sender;
+  ctx.message   = message;
+  ctx.timestamp = timestamp;
+  ctx.date      = timeModuleGetDateStr();
+  ctx.deviceId  = msgContextGetDeviceId();
+  ctx.carrier   = simGetCarrier();
+  ctx.simNumber = simQueryPhoneNumber(3000);
+  ctx.simSlot   = "SIM1";
+  ctx.signal    = simGetSignal();
+
+  String renderedBody = ch.customBody.length() > 0 ? renderTemplate(ch.customBody, ctx) : "";
+  return _sendOneChannel(ch, sender, message, timestamp, renderedBody);
+}
+
 void sendPushNotification(const String& sender, const String& message, const String& timestamp, MsgType msgType) {
   LOG("Push", "=== 开始多通道推送 ===");
   bool wifiOk = (WiFi.status() == WL_CONNECTED);
@@ -47,24 +97,7 @@ void sendPushNotification(const String& sender, const String& message, const Str
     // 渲染自定义消息格式（非空时替换内置默认格式）
     String renderedBody = ch.customBody.length() > 0 ? renderTemplate(ch.customBody, ctx) : "";
 
-    bool ok = false;
-    switch (ch.type) {
-      case PUSH_TYPE_POST_JSON:  ok = sendPostJson(ch, sender, message, timestamp, renderedBody);  break;
-      case PUSH_TYPE_BARK:       ok = sendBark(ch, sender, message, timestamp, renderedBody);       break;
-      case PUSH_TYPE_GET:        ok = sendGet(ch, sender, message, timestamp, renderedBody);        break;
-      case PUSH_TYPE_DINGTALK:   ok = sendDingtalk(ch, sender, message, timestamp, renderedBody);   break;
-      case PUSH_TYPE_PUSHPLUS:   ok = sendPushPlus(ch, sender, message, timestamp, renderedBody);   break;
-      case PUSH_TYPE_SERVERCHAN: ok = sendServerChan(ch, sender, message, timestamp, renderedBody); break;
-      case PUSH_TYPE_CUSTOM:     ok = sendCustom(ch, sender, message, timestamp, renderedBody);     break;
-      case PUSH_TYPE_FEISHU:     ok = sendFeishu(ch, sender, message, timestamp, renderedBody);     break;
-      case PUSH_TYPE_GOTIFY:     ok = sendGotify(ch, sender, message, timestamp, renderedBody);     break;
-      case PUSH_TYPE_TELEGRAM:   ok = sendTelegram(ch, sender, message, timestamp, renderedBody);   break;
-      case PUSH_TYPE_WECHAT_WORK: ok = sendWechatWork(ch, sender, message, timestamp, renderedBody); break;
-      case PUSH_TYPE_SMS:        ok = sendSmsPush(ch, sender, message, timestamp, renderedBody);    break;
-      default:
-        LOG("Push", "未知推送类型: %d", (int)ch.type);
-        break;
-    }
+    bool ok = _sendOneChannel(ch, sender, message, timestamp, renderedBody);
 
     if (config.pushStrategy == PUSH_STRATEGY_FAILOVER) {
       if (ok) {
@@ -77,7 +110,7 @@ void sendPushNotification(const String& sender, const String& message, const Str
       delay(100);
     }
 
-    // T021: 失败且开启重试时入队
+    // 失败且开启重试时入队
     if (!ok && ch.retryOnFail) {
       pushRetryEnqueue(i, sender, message, timestamp, msgType);
       LOG("Push", "[Retry] 通道 %s 失败，已加入重试队列", name.c_str());

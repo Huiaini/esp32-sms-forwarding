@@ -9,10 +9,6 @@ void configController(AsyncWebServerRequest* request) {
   AsyncJsonResponse* resp = new AsyncJsonResponse();
   JsonObject root = resp->getRoot();
 
-  root["smtpServer"] = config.smtpServer;
-  root["smtpPort"]   = config.smtpPort;
-  root["smtpUser"]   = config.smtpUser;
-  root["smtpSendTo"] = config.smtpSendTo;
   root["adminPhone"] = config.adminPhone;
   root["webUser"]    = config.webUser;
   // smtpPass and webPass are NEVER included (OWASP A02)
@@ -58,14 +54,6 @@ void configController(AsyncWebServerRequest* request) {
 // 将 Config struct 直接序列化为嵌套 JSON，触发浏览器文件下载。
 void configExportController(AsyncWebServerRequest* request) {
   JsonDocument doc;
-
-  // smtp 节
-  JsonObject smtp   = doc["smtp"].to<JsonObject>();
-  smtp["server"]    = config.smtpServer;
-  smtp["port"]      = config.smtpPort;
-  smtp["user"]      = config.smtpUser;
-  smtp["pass"]      = config.smtpPass;
-  smtp["sendTo"]    = config.smtpSendTo;
 
   // general 节
   JsonObject general          = doc["general"].to<JsonObject>();
@@ -169,11 +157,6 @@ void configImportController(AsyncWebServerRequest* request, uint8_t* data,
     // 此分支仅做基本映射以保持向后兼容，不引入新废弃键
     if (doc["sms_config"].is<JsonObject>()) {
       JsonObject s = doc["sms_config"].as<JsonObject>();
-      config.smtpServer       = s["smtpServer"]   | config.smtpServer;
-      config.smtpPort         = s["smtpPort"]      | config.smtpPort;
-      config.smtpUser         = s["smtpUser"]      | config.smtpUser;
-      config.smtpPass         = s["smtpPass"]      | config.smtpPass;
-      config.smtpSendTo       = s["smtpSendTo"]    | config.smtpSendTo;
       config.adminPhone       = s["adminPhone"]    | config.adminPhone;
       config.webUser          = s["webUser"]       | config.webUser;
       config.webPass          = s["webPass"]       | config.webPass;
@@ -226,8 +209,7 @@ void configImportController(AsyncWebServerRequest* request, uint8_t* data,
   }
 
   // 新格式：至少一个可识别节名
-  bool hasRecognized = doc["smtp"].is<JsonObject>()
-                    || doc["general"].is<JsonObject>()
+  bool hasRecognized = doc["general"].is<JsonObject>()
                     || doc["wifi"].is<JsonObject>()
                     || doc["wifiList"].is<JsonArray>()
                     || doc["pushChannels"].is<JsonArray>()
@@ -236,15 +218,6 @@ void configImportController(AsyncWebServerRequest* request, uint8_t* data,
   if (!hasRecognized) {
     request->send(400, "application/json", "{\"ok\":false,\"error\":\"配置格式不兼容，未找到可识别的配置节\"}");
     return;
-  }
-
-  if (doc["smtp"].is<JsonObject>()) {
-    JsonObject s      = doc["smtp"].as<JsonObject>();
-    config.smtpServer = s["server"] | config.smtpServer;
-    config.smtpPort   = s["port"]   | config.smtpPort;
-    config.smtpUser   = s["user"]   | config.smtpUser;
-    config.smtpPass   = s["pass"]   | config.smtpPass;
-    config.smtpSendTo = s["sendTo"] | config.smtpSendTo;
   }
 
   if (doc["general"].is<JsonObject>()) {

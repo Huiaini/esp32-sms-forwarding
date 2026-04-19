@@ -52,11 +52,6 @@ struct WifiEntry {
 };
 
 struct Config {
-  String     smtpServer;
-  int        smtpPort;
-  String     smtpUser;
-  String     smtpPass;
-  String     smtpSendTo;
   String     adminPhone;
   String     webUser;
   String     webPass;

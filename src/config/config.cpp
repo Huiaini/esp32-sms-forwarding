@@ -13,11 +13,6 @@ static Preferences preferences;
 
 void loadConfig() {
   preferences.begin("sms_config", false);
-  config.smtpServer = preferences.isKey("smtpServer") ? preferences.getString("smtpServer", "") : "";
-  config.smtpPort   = preferences.isKey("smtpPort")   ? preferences.getInt("smtpPort", 465)     : 465;
-  config.smtpUser   = preferences.isKey("smtpUser")   ? preferences.getString("smtpUser", "")   : "";
-  config.smtpPass   = preferences.isKey("smtpPass")   ? preferences.getString("smtpPass", "")   : "";
-  config.smtpSendTo = preferences.isKey("smtpSendTo") ? preferences.getString("smtpSendTo", "") : "";
   config.adminPhone = preferences.isKey("adminPhone") ? preferences.getString("adminPhone", "") : "";
   config.webUser    = preferences.isKey("webUser")    ? preferences.getString("webUser", DEFAULT_WEB_USER) : DEFAULT_WEB_USER;
   config.webPass    = preferences.isKey("webPass")    ? preferences.getString("webPass", DEFAULT_WEB_PASS) : DEFAULT_WEB_PASS;
@@ -91,11 +86,6 @@ void loadConfig() {
 
 void saveConfig() {
   preferences.begin("sms_config", false);
-  preferences.putString("smtpServer", config.smtpServer);
-  preferences.putInt("smtpPort",      config.smtpPort);
-  preferences.putString("smtpUser",   config.smtpUser);
-  preferences.putString("smtpPass",   config.smtpPass);
-  preferences.putString("smtpSendTo", config.smtpSendTo);
   preferences.putString("adminPhone", config.adminPhone);
   preferences.putString("webUser",    config.webUser);
   preferences.putString("webPass",    config.webPass);
@@ -222,7 +212,6 @@ void resetConfig() {
   p.end();
 
   config = Config{};
-  config.smtpPort  = 465;
   config.webUser   = DEFAULT_WEB_USER;
   config.webPass   = DEFAULT_WEB_PASS;
   config.pushCount = 5;
@@ -267,16 +256,10 @@ bool isPushChannelValid(const PushChannel& ch) {
 }
 
 bool isConfigValid() {
-  bool emailValid = config.smtpServer.length() > 0 &&
-                    config.smtpUser.length() > 0   &&
-                    config.smtpPass.length() > 0   &&
-                    config.smtpSendTo.length() > 0;
-  bool pushValid = false;
   for (int i = 0; i < config.pushCount; i++) {
     if (isPushChannelValid(config.pushChannels[i])) {
-      pushValid = true;
-      break;
+      return true;
     }
   }
-  return emailValid || pushValid;
+  return false;
 }

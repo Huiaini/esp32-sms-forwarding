@@ -1,17 +1,21 @@
 #include "wifi_manager.h"
 #include <WiFi.h>
-#include <freertos/FreeRTOS.h>
-#include <freertos/task.h>
+#include <esp_task_wdt.h>
 #include "config/config.h"
 #include "logger.h"
 
 static WiFiMode s_mode = WIFI_MODE_UNINITIALIZED;
 
-// T008: 重连状态变量
-static bool              s_everConnected  = false;
-static volatile bool     s_abortReconnect = false;
-static TaskHandle_t      s_reconnectTask  = nullptr;
-static WifiReconnectCallback s_reconnectCb = nullptr;
+static bool                  s_everConnected = false;
+static WifiReconnectCallback s_reconnectCb   = nullptr;
+
+// 轮询重连状态机
+enum ReconnState { RECONNECT_IDLE, RECONNECT_WAITING, RECONNECT_CONNECTING };
+
+static ReconnState   s_reconnState   = RECONNECT_IDLE;
+static int           s_reconnWIdx    = 0;
+static int           s_reconnAttempt = 0;
+static unsigned long s_lastAttemptMs = 0;
 
 static void enterAPMode() {
   WiFi.softAP("SMS-Forwarder-AP");
@@ -19,64 +23,19 @@ static void enterAPMode() {
   LOG("WiFi", "AP模式启动，SSID: SMS-Forwarder-AP，IP: 192.168.4.1");
 }
 
-// T011: WiFi 持久重连 FreeRTOS 任务
-static void wifiReconnectTask(void*) {
-  s_mode = WIFI_MODE_RECONNECTING;
-  LOG("WiFi", "重连任务启动，轮询 %d 条 SSID", config.wifiCount);
-
-  for (int w = 0; w < config.wifiCount; w++) {
-    if (config.wifiList[w].ssid.length() == 0) continue;
-
-    const char* ssid = config.wifiList[w].ssid.c_str();
-    const char* pass = config.wifiList[w].password.c_str();
-
-    for (int attempt = 1; attempt <= WIFI_RECONNECT_ATTEMPTS_PER_SSID; attempt++) {
-      if (s_abortReconnect) {
-        LOG("WiFi", "重连任务被中止");
-        s_reconnectTask = nullptr;
-        vTaskDelete(nullptr);
-        return;
-      }
-
-      LOG("WiFi", "重连尝试 SSID: %s，第 %d/%d 次", ssid, attempt, WIFI_RECONNECT_ATTEMPTS_PER_SSID);
-      WiFi.begin(ssid, pass, 0, nullptr, true);
-
-      unsigned long start = millis();
-      while (millis() - start < WIFI_RECONNECT_INTERVAL_MS) {
-        if (s_abortReconnect) {
-          WiFi.disconnect(true);
-          LOG("WiFi", "重连任务被中止（等待期间）");
-          s_reconnectTask = nullptr;
-          vTaskDelete(nullptr);
-          return;
-        }
-        if (WiFi.status() == WL_CONNECTED) {
-          s_mode = WIFI_MODE_STA_CONNECTED;
-          LOG("WiFi", "重连成功，SSID: %s，IP: %s", ssid, WiFi.localIP().toString().c_str());
-          if (s_reconnectCb) s_reconnectCb();
-          s_reconnectTask = nullptr;
-          vTaskDelete(nullptr);
-          return;
-        }
-        vTaskDelay(pdMS_TO_TICKS(100));
-      }
-
-      LOG("WiFi", "重连超时，SSID: %s，第 %d/%d 次", ssid, attempt, WIFI_RECONNECT_ATTEMPTS_PER_SSID);
-      WiFi.disconnect(true);
-      vTaskDelay(pdMS_TO_TICKS(500));
-    }
-  }
-
-  LOG("WiFi", "所有 SSID 重连均失败，保持当前状态（不切换 AP 模式）");
-  s_reconnectTask = nullptr;
-  vTaskDelete(nullptr);
-}
-
 void wifiManagerInit() {
+  // 重置重连状态机（支持重复调用）
+  s_reconnState   = RECONNECT_IDLE;
+  s_reconnWIdx    = 0;
+  s_reconnAttempt = 0;
+  s_lastAttemptMs = 0;
+  s_everConnected = false;
+
   // 软重启（ESP.restart）后 WiFi 驱动状态可能残留，强制关闭后再初始化
   WiFi.disconnect(true);
   WiFi.mode(WIFI_OFF);
   delay(100);
+  esp_task_wdt_reset();
 
   if (config.wifiCount == 0) {
     LOG("WiFi", "未配置任何WiFi，直接进入AP模式");
@@ -101,32 +60,84 @@ void wifiManagerInit() {
       while (millis() - start < 3000) {
         if (WiFi.status() == WL_CONNECTED) {
           s_mode = WIFI_MODE_STA_CONNECTED;
-          // T009: 标记曾成功连接
           s_everConnected = true;
           LOG("WiFi", "第 %d/%d 条WiFi第 %d/5 次连接成功，IP: %s", w + 1, config.wifiCount, attempt, WiFi.localIP().toString().c_str());
-          // T010: 注册断线事件回调
-          WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
-            if (!s_everConnected) return;
-            if (s_reconnectTask != nullptr) return;  // 已有重连任务在跑
-            s_abortReconnect = false;
-            LOG("WiFi", "检测到WiFi断线，启动重连任务");
-            xTaskCreate(wifiReconnectTask, "wifi_reconnect",
-                        WIFI_RECONNECT_TASK_STACK, nullptr,
-                        WIFI_RECONNECT_TASK_PRIORITY, &s_reconnectTask);
-          }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
           return;
         }
         delay(100);
+        esp_task_wdt_reset();
       }
 
       LOG("WiFi", "第 %d/%d 条WiFi第 %d/5 次连接超时", w + 1, config.wifiCount, attempt);
       WiFi.disconnect(true);
       delay(500);
+      esp_task_wdt_reset();
     }
   }
 
   LOG("WiFi", "所有WiFi条目全部失败，切换到AP模式");
   enterAPMode();
+}
+
+void wifiManagerTick() {
+  if (s_mode == WIFI_MODE_AP_ACTIVE) return;
+
+  switch (s_reconnState) {
+    case RECONNECT_IDLE:
+      if (s_everConnected && s_mode == WIFI_MODE_STA_CONNECTED && WiFi.status() != WL_CONNECTED) {
+        s_mode = WIFI_MODE_RECONNECTING;
+        s_reconnState   = RECONNECT_WAITING;
+        s_reconnWIdx    = 0;
+        s_reconnAttempt = 0;
+        s_lastAttemptMs = 0;  // 使 WAITING 立即触发首次尝试
+        LOG("WiFi", "检测到WiFi断线，启动重连轮询");
+      }
+      break;
+
+    case RECONNECT_WAITING:
+      if (millis() - s_lastAttemptMs >= WIFI_RECONNECT_INTERVAL_MS) {
+        // 跳过空 SSID
+        while (s_reconnWIdx < config.wifiCount && config.wifiList[s_reconnWIdx].ssid.length() == 0) {
+          s_reconnWIdx++;
+        }
+        if (s_reconnWIdx >= config.wifiCount) {
+          // 所有 SSID 已尝试完一轮，重置回首条循环
+          s_reconnWIdx    = 0;
+          s_reconnAttempt = 0;
+          LOG("WiFi", "所有 SSID 重连均失败，重置循环重试");
+        }
+        const char* ssid = config.wifiList[s_reconnWIdx].ssid.c_str();
+        const char* pass = config.wifiList[s_reconnWIdx].password.c_str();
+        LOG("WiFi", "重连尝试 SSID: %s，第 %d/%d 次", ssid, s_reconnAttempt + 1, WIFI_RECONNECT_ATTEMPTS_PER_SSID);
+        WiFi.begin(ssid, pass, 0, nullptr, true);
+        s_lastAttemptMs = millis();
+        s_reconnState   = RECONNECT_CONNECTING;
+      }
+      break;
+
+    case RECONNECT_CONNECTING:
+      if (WiFi.status() == WL_CONNECTED) {
+        s_mode        = WIFI_MODE_STA_CONNECTED;
+        s_reconnState = RECONNECT_IDLE;
+        LOG("WiFi", "重连成功，SSID: %s，IP: %s",
+            config.wifiList[s_reconnWIdx].ssid.c_str(),
+            WiFi.localIP().toString().c_str());
+        if (s_reconnectCb) s_reconnectCb();
+      } else if (millis() - s_lastAttemptMs >= WIFI_RECONNECT_INTERVAL_MS) {
+        LOG("WiFi", "重连超时，SSID: %s，第 %d/%d 次",
+            config.wifiList[s_reconnWIdx].ssid.c_str(),
+            s_reconnAttempt + 1, WIFI_RECONNECT_ATTEMPTS_PER_SSID);
+        WiFi.disconnect(true);
+        s_reconnAttempt++;
+        if (s_reconnAttempt >= WIFI_RECONNECT_ATTEMPTS_PER_SSID) {
+          s_reconnAttempt = 0;
+          s_reconnWIdx++;
+        }
+        s_lastAttemptMs = millis();
+        s_reconnState   = RECONNECT_WAITING;
+      }
+      break;
+  }
 }
 
 WiFiMode wifiManagerGetMode() {
@@ -144,12 +155,6 @@ String getDeviceUrl() {
   return "http://" + wifiManagerGetIP() + "/";
 }
 
-// T012: 中止重连任务
-void wifiManagerAbortReconnect() {
-  s_abortReconnect = true;
-}
-
-// T012: 设置重连成功回调
 void wifiManagerSetReconnectCallback(WifiReconnectCallback cb) {
   s_reconnectCb = cb;
 }

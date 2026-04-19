@@ -21,6 +21,7 @@ void simFetchInfo();
 // 以下 getter 返回缓存值，若未就绪则返回"未知"
 String simGetCarrier();
 String simGetSignal();
+String simGetPhoneNum();
 
 /**
  * @brief 注册 URC 回调后启动 SIM reader task。

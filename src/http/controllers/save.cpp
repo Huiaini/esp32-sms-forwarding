@@ -1,7 +1,6 @@
 #include "save.h"
 #include "../http_server.h"
 #include "config/config.h"
-#include "email/email.h"
 #include "wifi/wifi_manager.h"
 #include "logger.h"
 #include <ArduinoJson.h>
@@ -24,14 +23,6 @@ void saveController(AsyncWebServerRequest* request) {
     if (v.length() > 0) config.webPass = v;
   }
 
-  if (request->hasParam("smtpServer", true)) config.smtpServer = request->getParam("smtpServer", true)->value();
-  if (request->hasParam("smtpPort",   true)) {
-    int p = request->getParam("smtpPort", true)->value().toInt();
-    config.smtpPort = (p > 0) ? p : 465;
-  }
-  if (request->hasParam("smtpUser",   true)) config.smtpUser   = request->getParam("smtpUser",   true)->value();
-  if (request->hasParam("smtpPass",   true)) config.smtpPass   = request->getParam("smtpPass",   true)->value();
-  if (request->hasParam("smtpSendTo", true)) config.smtpSendTo = request->getParam("smtpSendTo", true)->value();
   if (request->hasParam("adminPhone", true)) config.adminPhone = request->getParam("adminPhone", true)->value();
 
   // checkbox：只有全量表单提交时这两个字段才有意义；
@@ -90,9 +81,7 @@ void saveController(AsyncWebServerRequest* request) {
   request->send(200, "application/json", body);
 
   if (isConfigValid()) {
-    String subject = "短信转发器配置已更新";
-    String body = "设备配置已更新\n设备地址: " + getDeviceUrl();
-    sendEmailNotification(subject.c_str(), body.c_str());
+    LOG("HTTP", "配置已更新，设备地址: %s", getDeviceUrl().c_str());
   }
 }
 
