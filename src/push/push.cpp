@@ -51,7 +51,7 @@ bool sendPushChannel(int channelIdx, const String& sender, const String& message
   ctx.date      = timeModuleGetDateStr();
   ctx.deviceId  = msgContextGetDeviceId();
   ctx.carrier   = simGetCarrier();
-  ctx.simNumber = simQueryPhoneNumber(3000);
+  ctx.simNumber = simGetPhoneNum();
   ctx.simSlot   = "SIM1";
   ctx.signal    = simGetSignal();
 
@@ -71,7 +71,7 @@ void sendPushNotification(const String& sender, const String& message, const Str
   ctx.date      = timeModuleGetDateStr();
   ctx.deviceId  = msgContextGetDeviceId();
   ctx.carrier   = simGetCarrier();
-  ctx.simNumber = simQueryPhoneNumber(3000);
+  ctx.simNumber = simGetPhoneNum();
   ctx.simSlot   = "SIM1";
   ctx.signal    = simGetSignal();
 

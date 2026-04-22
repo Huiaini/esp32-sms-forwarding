@@ -61,17 +61,16 @@ static void routeURC(const String& line) {
 // ---------- SIM reader task ----------
 
 static void simReaderTask(void*) {
-    char lineBuf[256];
-    int  pos = 0;
+    String lineBuf;
+    lineBuf.reserve(400);  // 预分配，SMS PDU hex 串典型长度约 340 字符
 
     for (;;) {
         // 读取 Serial1 字符，按行处理
         while (Serial1.available()) {
             char c = (char)Serial1.read();
             if (c == '\n') {
-                lineBuf[pos] = '\0';
-                String line = String(lineBuf);
-                pos = 0;
+                String line = lineBuf;
+                lineBuf = "";
 
                 if (line.length() == 0) continue;
 
@@ -111,10 +110,7 @@ static void simReaderTask(void*) {
                     routeURC(line);
                 }
             } else if (c != '\r') {
-                if (pos < 255) {
-                    lineBuf[pos++] = c;
-                }
-                // 若超出缓冲则截断丢弃（pos 不再增加）
+                lineBuf += c;
             }
         }
 
