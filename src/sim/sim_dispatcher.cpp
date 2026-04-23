@@ -197,10 +197,10 @@ bool simSendCommand(const char* cmd, unsigned long timeoutMs,
 String simQueryPhoneNumber(unsigned long timeoutMs) {
     String resp;
     bool ok = simSendCommand("AT+CNUM", timeoutMs, &resp, false);
-    if (!ok) return "未知号码";
+    if (!ok) return "";
 
     int start = resp.indexOf("+CNUM:");
-    if (start < 0) return "未知号码";
+    if (start < 0) return "";
 
     // +CNUM: "","13900001234",129
     // 第一对引号为 alpha 名称（可为空），第二对为实际号码
@@ -208,9 +208,7 @@ String simQueryPhoneNumber(unsigned long timeoutMs) {
     int q2 = (q1 >= 0) ? resp.indexOf('"', q1 + 1) : -1;
     int q3 = (q2 >= 0) ? resp.indexOf('"', q2 + 1) : -1;
     int q4 = (q3 >= 0) ? resp.indexOf('"', q3 + 1) : -1;
-    if (q3 < 0 || q4 <= q3) return "未知号码";
+    if (q3 < 0 || q4 <= q3) return "";
 
-    String num = resp.substring(q3 + 1, q4);
-    if (num.length() == 0) return "未知号码";
-    return num;
+    return resp.substring(q3 + 1, q4);
 }

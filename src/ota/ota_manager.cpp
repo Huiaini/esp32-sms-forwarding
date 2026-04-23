@@ -74,7 +74,16 @@ static void checkVersionTask(void* /*param*/) {
     g_message    = "";
     vTaskDelete(nullptr);
 }
-
+// ── otaTaskAbort — 失败后延时清理并终止任务（仅限 FreeRTOS 任务内调用）──
+[[noreturn]] static void otaTaskAbort(const String& userMsg) {
+    g_state      = OtaState::FAILED;
+    g_message    = userMsg;
+    vTaskDelay(pdMS_TO_TICKS(5000));
+    g_inProgress = false;
+    g_state      = OtaState::IDLE;
+    vTaskDelete(nullptr);
+    for (;;);
+}
 // ── onlineUpgradeTask — 后台 FreeRTOS 任务 ───────────────────────
 static void onlineUpgradeTask(void* /*param*/) {
     // --- 阶段1: 版本检查 ---
@@ -102,14 +111,8 @@ static void onlineUpgradeTask(void* /*param*/) {
     verHttp.end();
 
     if (latestTag.isEmpty()) {
-        g_state   = OtaState::FAILED;
-        g_message = "版本查询失败，请检查网络连接";
         LOG("OTA", "无法解析最新版本 tag，升级中止");
-        vTaskDelay(pdMS_TO_TICKS(5000));
-        g_inProgress = false;
-        g_state      = OtaState::IDLE;
-        vTaskDelete(nullptr);
-        return;
+        otaTaskAbort("版本查询失败，请检查网络连接");
     }
     g_latestVer = latestTag;
 
@@ -124,26 +127,14 @@ static void onlineUpgradeTask(void* /*param*/) {
 
     g_otaPart = esp_ota_get_next_update_partition(nullptr);
     if (!g_otaPart) {
-        g_state   = OtaState::FAILED;
-        g_message = "找不到可用的 OTA 分区，请确认分区表已正确烧录";
         LOG("OTA", "esp_ota_get_next_update_partition 返回 null");
-        vTaskDelay(pdMS_TO_TICKS(5000));
-        g_inProgress = false;
-        g_state      = OtaState::IDLE;
-        vTaskDelete(nullptr);
-        return;
+        otaTaskAbort("找不到可用的 OTA 分区，请确认分区表已正确烧录");
     }
 
     esp_err_t err = esp_ota_begin(g_otaPart, OTA_WITH_SEQUENTIAL_WRITES, &g_otaHandle);
     if (err != ESP_OK) {
-        g_state   = OtaState::FAILED;
-        g_message = "OTA 初始化失败: " + String(esp_err_to_name(err));
         LOG("OTA", "esp_ota_begin 失败: %s", esp_err_to_name(err));
-        vTaskDelay(pdMS_TO_TICKS(5000));
-        g_inProgress = false;
-        g_state      = OtaState::IDLE;
-        vTaskDelete(nullptr);
-        return;
+        otaTaskAbort("OTA 初始化失败: " + String(esp_err_to_name(err)));
     }
 
     HTTPClient dlHttp;
@@ -155,14 +146,8 @@ static void onlineUpgradeTask(void* /*param*/) {
     if (dlCode != 200) {
         dlHttp.end();
         esp_ota_abort(g_otaHandle);
-        g_state   = OtaState::FAILED;
-        g_message = "连接固件服务器失败，响应码: " + String(dlCode);
         LOG("OTA", "固件下载 HTTP 响应码: %d", dlCode);
-        vTaskDelay(pdMS_TO_TICKS(5000));
-        g_inProgress = false;
-        g_state      = OtaState::IDLE;
-        vTaskDelete(nullptr);
-        return;
+        otaTaskAbort("连接固件服务器失败，响应码: " + String(dlCode));
     }
 
     int contentLen = dlHttp.getSize();
@@ -201,40 +186,22 @@ static void onlineUpgradeTask(void* /*param*/) {
 
     if (dlFailed) {
         esp_ota_abort(g_otaHandle);
-        g_state   = OtaState::FAILED;
-        g_message = "固件下载失败，请检查网络";
         LOG("OTA", "固件下载失败，已中止 OTA");
-        vTaskDelay(pdMS_TO_TICKS(5000));
-        g_inProgress = false;
-        g_state      = OtaState::IDLE;
-        vTaskDelete(nullptr);
-        return;
+        otaTaskAbort("固件下载失败，请检查网络");
     }
 
     LOG("OTA", "下载完成，共写入 %d 字节，提交 OTA...", totalWritten);
 
     err = esp_ota_end(g_otaHandle);
     if (err != ESP_OK) {
-        g_state   = OtaState::FAILED;
-        g_message = "固件校验失败: " + String(esp_err_to_name(err));
         LOG("OTA", "esp_ota_end 失败: %s", esp_err_to_name(err));
-        vTaskDelay(pdMS_TO_TICKS(5000));
-        g_inProgress = false;
-        g_state      = OtaState::IDLE;
-        vTaskDelete(nullptr);
-        return;
+        otaTaskAbort("固件校验失败: " + String(esp_err_to_name(err)));
     }
 
     err = esp_ota_set_boot_partition(g_otaPart);
     if (err != ESP_OK) {
-        g_state   = OtaState::FAILED;
-        g_message = "设置启动分区失败: " + String(esp_err_to_name(err));
         LOG("OTA", "esp_ota_set_boot_partition 失败: %s", esp_err_to_name(err));
-        vTaskDelay(pdMS_TO_TICKS(5000));
-        g_inProgress = false;
-        g_state      = OtaState::IDLE;
-        vTaskDelete(nullptr);
-        return;
+        otaTaskAbort("设置启动分区失败: " + String(esp_err_to_name(err)));
     }
 
     g_progress = 100;

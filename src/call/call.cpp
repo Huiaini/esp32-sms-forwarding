@@ -2,8 +2,8 @@
 #include "push/push.h"
 #include "sms/phone_utils.h"
 #include "sim/sim_dispatcher.h"
+#include "time/time_module.h"
 #include "logger.h"
-#include <time.h>
 
 // ---------- 模块内部静态变量 ----------
 
@@ -22,14 +22,8 @@ static void dispatchCallNotification(const String& callerNum) {
         return;
     }
 
-    // 格式化时间戳
-    time_t now = time(nullptr);
-    char ts[20];
-    struct tm t;
-    localtime_r(&now, &t);
-    strftime(ts, sizeof(ts), "%Y-%m-%d %H:%M:%S", &t);
-
-    sendPushNotification(callerNum, "来电号码: " + callerNum + "\n时间: " + String(ts), String(ts), MSG_TYPE_CALL);
+    String ts = timeModuleGetDateStr();
+    sendPushNotification(callerNum, "来电号码: " + callerNum + "\n时间: " + ts, ts, MSG_TYPE_CALL);
 
     s_lastNotifyMs = millis();
     LOG("Call", "来电通知已发送，号码: %s", callerNum.c_str());

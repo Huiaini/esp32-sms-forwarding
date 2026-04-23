@@ -6,9 +6,6 @@
 #include <ArduinoJson.h>
 #include <WiFi.h>
 
-#define DEFAULT_WEB_USER "admin"
-#define DEFAULT_WEB_PASS "admin123"
-
 void saveController(AsyncWebServerRequest* request) {
   // ── 各字段仅在参数实际出现时才覆盖，否则保留当前值（partial-update 语义）──
 

@@ -35,6 +35,9 @@ constexpr int MAX_PUSH_CHANNELS    = 10;
 constexpr int MAX_WIFI_ENTRIES      = 5;
 constexpr int MAX_BLACKLIST_ENTRIES = 20;
 
+#define DEFAULT_WEB_USER "admin"
+#define DEFAULT_WEB_PASS "admin123"
+
 struct PushChannel {
   bool     enabled;
   PushType type;

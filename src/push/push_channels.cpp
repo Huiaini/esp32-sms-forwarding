@@ -32,17 +32,20 @@ static String urlEncode(const String& str) {
   return encoded;
 }
 
-static String dingtalkSign(const String& secret, int64_t timestamp) {
-  String stringToSign = String(timestamp) + "\n" + secret;
+static String computeHmacSha256Base64(const String& key, const String& data) {
   uint8_t hmacResult[32];
   mbedtls_md_context_t ctx;
   mbedtls_md_init(&ctx);
   mbedtls_md_setup(&ctx, mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), 1);
-  mbedtls_md_hmac_starts(&ctx, (const unsigned char*)secret.c_str(), secret.length());
-  mbedtls_md_hmac_update(&ctx, (const unsigned char*)stringToSign.c_str(), stringToSign.length());
+  mbedtls_md_hmac_starts(&ctx, (const unsigned char*)key.c_str(), key.length());
+  mbedtls_md_hmac_update(&ctx, (const unsigned char*)data.c_str(), data.length());
   mbedtls_md_hmac_finish(&ctx, hmacResult);
   mbedtls_md_free(&ctx);
-  return urlEncode(base64::encode(hmacResult, 32));
+  return base64::encode(hmacResult, 32);
+}
+
+static String dingtalkSign(const String& secret, int64_t timestamp) {
+  return urlEncode(computeHmacSha256Base64(secret, String(timestamp) + "\n" + secret));
 }
 
 static int64_t getUtcMillis() {
@@ -218,17 +221,8 @@ bool sendFeishu(const PushChannel& ch, const String& sender, const String& messa
 
   if (ch.key1.length() > 0) {
     int64_t ts = time(nullptr);
-    String stringToSign = String(ts) + "\n" + ch.key1;
-    uint8_t hmacResult[32];
-    mbedtls_md_context_t ctx;
-    mbedtls_md_init(&ctx);
-    mbedtls_md_setup(&ctx, mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), 1);
-    mbedtls_md_hmac_starts(&ctx, (const unsigned char*)ch.key1.c_str(), ch.key1.length());
-    mbedtls_md_hmac_update(&ctx, (const unsigned char*)stringToSign.c_str(), stringToSign.length());
-    mbedtls_md_hmac_finish(&ctx, hmacResult);
-    mbedtls_md_free(&ctx);
     doc["timestamp"] = String(ts);
-    doc["sign"]      = base64::encode(hmacResult, 32);
+    doc["sign"]      = computeHmacSha256Base64(ch.key1, String(ts) + "\n" + ch.key1);
   }
 
   String text = renderedBody.length() > 0 ? renderedBody
@@ -300,18 +294,8 @@ bool sendWechatWork(const PushChannel& ch, const String& sender, const String& m
     int64_t ts = getUtcMillis();
     char tsBuf[21];
     snprintf(tsBuf, sizeof(tsBuf), "%lld", ts);
-    String stringToSign = String(tsBuf) + "\n" + ch.key1;
-    uint8_t hmacResult[32];
-    mbedtls_md_context_t ctx;
-    mbedtls_md_init(&ctx);
-    mbedtls_md_setup(&ctx, mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), 1);
-    mbedtls_md_hmac_starts(&ctx, (const unsigned char*)ch.key1.c_str(), ch.key1.length());
-    mbedtls_md_hmac_update(&ctx, (const unsigned char*)stringToSign.c_str(), stringToSign.length());
-    mbedtls_md_hmac_finish(&ctx, hmacResult);
-    mbedtls_md_free(&ctx);
-    String sign = urlEncode(base64::encode(hmacResult, 32));
     webhookUrl += (webhookUrl.indexOf('?') == -1) ? "?" : "&";
-    webhookUrl += "timestamp=" + String(tsBuf) + "&sign=" + sign;
+    webhookUrl += "timestamp=" + String(tsBuf) + "&sign=" + urlEncode(computeHmacSha256Base64(ch.key1, String(tsBuf) + "\n" + ch.key1));
   }
 
   httpClientBegin(http, webhookUrl);

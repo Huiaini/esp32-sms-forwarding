@@ -10,7 +10,7 @@ enum WiFiMode {
 };
 
 // WiFi 重连常量
-constexpr int WIFI_RECONNECT_ATTEMPTS_PER_SSID = 3;
+constexpr int WIFI_RECONNECT_ATTEMPTS_PER_SSID = 5;
 constexpr unsigned long WIFI_RECONNECT_INTERVAL_MS = 5000;
 
 // 重连成功回调类型

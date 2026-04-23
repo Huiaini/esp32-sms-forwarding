@@ -33,6 +33,21 @@ static bool _sendOneChannel(const PushChannel& ch, const String& sender, const S
   return ok;
 }
 
+// 构建消息上下文（内部辅助）
+static MessageContext buildMsgContext(const String& sender, const String& message, const String& timestamp) {
+  MessageContext ctx;
+  ctx.sender    = sender;
+  ctx.message   = message;
+  ctx.timestamp = timestamp;
+  ctx.date      = timeModuleGetDateStr();
+  ctx.deviceId  = msgContextGetDeviceId();
+  ctx.carrier   = simGetCarrier();
+  ctx.simNumber = simGetPhoneNum();
+  ctx.simSlot   = "SIM1";
+  ctx.signal    = simGetSignal();
+  return ctx;
+}
+
 // 单通道推送：含跳过判断、构建消息上下文，供重试队列调用
 bool sendPushChannel(int channelIdx, const String& sender, const String& message,
                      const String& timestamp, MsgType msgType) {
@@ -44,17 +59,7 @@ bool sendPushChannel(int channelIdx, const String& sender, const String& message
   if (ch.type >= PUSH_TYPE_POST_JSON && ch.type <= PUSH_TYPE_WECHAT_WORK && !wifiOk) return false;
   if (ch.type == PUSH_TYPE_SMS && msgType == MSG_TYPE_SIM) return false;
 
-  MessageContext ctx;
-  ctx.sender    = sender;
-  ctx.message   = message;
-  ctx.timestamp = timestamp;
-  ctx.date      = timeModuleGetDateStr();
-  ctx.deviceId  = msgContextGetDeviceId();
-  ctx.carrier   = simGetCarrier();
-  ctx.simNumber = simGetPhoneNum();
-  ctx.simSlot   = "SIM1";
-  ctx.signal    = simGetSignal();
-
+  MessageContext ctx = buildMsgContext(sender, message, timestamp);
   String renderedBody = ch.customBody.length() > 0 ? renderTemplate(ch.customBody, ctx) : "";
   return _sendOneChannel(ch, sender, message, timestamp, renderedBody);
 }
@@ -81,17 +86,7 @@ void sendPushNotification(const String& sender, const String& message, const Str
 
   bool wifiOk = (WiFi.status() == WL_CONNECTED);
 
-  // 构建消息上下文（每次推送时构建一次，所有通道共享）
-  MessageContext ctx;
-  ctx.sender    = sender;
-  ctx.message   = message;
-  ctx.timestamp = timestamp;
-  ctx.date      = timeModuleGetDateStr();
-  ctx.deviceId  = msgContextGetDeviceId();
-  ctx.carrier   = simGetCarrier();
-  ctx.simNumber = simGetPhoneNum();
-  ctx.simSlot   = "SIM1";
-  ctx.signal    = simGetSignal();
+  MessageContext ctx = buildMsgContext(sender, message, timestamp);
 
   for (int i = 0; i < config.pushCount; i++) {
     const PushChannel& ch = config.pushChannels[i];

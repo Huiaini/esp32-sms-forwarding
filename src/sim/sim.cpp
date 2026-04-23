@@ -197,12 +197,11 @@ void simInit() {
   LOG("SIM", "SIM 卡就绪，开始初始化");
   s_state = SIM_INITIALIZING;
 
-  // 步骤1: 射频离线，在所有模块 ready 前保持离线，防止基站积压消息过早到达
-  if (sendATandWaitOK("AT+CFUN=4", 2000)) {
-    LOG("SIM", "射频已离线 (CFUN=4)，等待初始化完成后再上线");
-  } else {
-    LOG("SIM", "AT+CFUN=4 失败，退化为正常初始化流程");
-  }
+  // 步骤1: 所有准备完成，恢复射频上线
+  // 注意：CFUN=4→1 切换会重置 CNMI/CMGF/CLIP 等非持久化设置，
+  //       因此 runModemConfig 必须放在 CFUN=1 之后立即执行
+  sendATandWaitOK("AT+CFUN=1", 3000);
+  LOG("SIM", "射频已恢复 (CFUN=1)");
 
   delay(200);
 
@@ -216,29 +215,22 @@ void simInit() {
     } else {
       s_numberReady  = false;
       s_numRetryNext = millis() + SIM_NUMBER_RETRY_INTERVAL_MS;
-      LOG("SIM", "首次号码查询失败，5s 后重试");
+      LOG("SIM", "首次号码查询失败，%lu ms 后再试", SIM_NUMBER_RETRY_INTERVAL_MS);
     }
   }
 
-  // 步骤3: 所有准备完成，恢复射频上线
-  // 注意：CFUN=4→1 切换会重置 CNMI/CMGF/CLIP 等非持久化设置，
-  //       因此 runModemConfig 必须放在 CFUN=1 之后立即执行
-  sendATandWaitOK("AT+CFUN=1", 3000);
-  LOG("SIM", "射频已恢复 (CFUN=1)");
-
-  // 步骤4: 重新配置模组参数（CFUN=1 会重置这些设置，必须在此补全）
+  // 步骤3: 重新配置模组参数（CFUN=1 会重置这些设置，必须在此补全）
   if (!runModemConfig()) {
     s_state = SIM_INIT_FAILED;
     LOG("SIM", "SIM 初始化失败（模组配置阶段）");
     return;
   }
 
-  // 步骤5: 等待网络注册
+  // 步骤4: 等待网络注册
   LOG("SIM", "等待网络注册");
   if (runNetworkWait()) {
     // 步骤5: 网络就绪后尝试 SIM 时间同步
     timeModuleSyncFromSIM();
-
     s_state            = SIM_READY;
     s_tsm.state        = TS_PENDING;
     s_tsm.triggerMs    = millis();
@@ -307,25 +299,14 @@ void simTick() {
   // T008: 本机号码 10s 重试查询
   if (s_state == SIM_READY && !s_numberReady && millis() >= s_numRetryNext) {
     LOG("SIM", "本机号码重试查询...");
-    String resp;
-    bool ok = simSendCommand("AT+CNUM", 3000, &resp, false);
-    if (ok && resp.length() > 0) {
-      int start = resp.indexOf("+CNUM:");
-      if (start >= 0) {
-        int q1 = resp.indexOf('"', start);
-        int q2 = (q1 >= 0) ? resp.indexOf('"', q1 + 1) : -1;
-        if (q1 >= 0 && q2 > q1) {
-          String num = resp.substring(q1 + 1, q2);
-          if (num.length() > 0) {
-            s_phoneNum     = num;
-            s_numberReady  = true;
-            s_numRetryNext = ULONG_MAX;
-            LOG("SIM", "本机号码更新: %s", num.c_str());
-          }
-        }
-      }
-    }
-    if (!s_numberReady) {
+    String num = simQueryPhoneNumber(3000);
+    if (num.length() > 0) {
+      s_phoneNum     = num;
+      s_numberReady  = true;
+      s_numRetryNext = ULONG_MAX;
+      LOG("SIM", "本机号码更新: %s", num.c_str());
+    } else {
+      s_numberReady  = false;
       s_numRetryNext = millis() + SIM_NUMBER_RETRY_INTERVAL_MS;
       LOG("SIM", "本机号码重试失败，%lu ms 后再试", SIM_NUMBER_RETRY_INTERVAL_MS);
     }
