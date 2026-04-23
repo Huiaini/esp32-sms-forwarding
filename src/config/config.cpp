@@ -10,38 +10,28 @@ static Preferences preferences;
 
 void loadConfig() {
   preferences.begin("sms_config", false);
-  config.adminPhone = preferences.getString("adminPhone", "");
-  config.webUser    = preferences.getString("webUser", DEFAULT_WEB_USER);
-  config.webPass    = preferences.getString("webPass", DEFAULT_WEB_PASS);
+  config.adminPhone = preferences.isKey("adminPhone") ? preferences.getString("adminPhone", "") : "";
+  config.webUser    = preferences.isKey("webUser")    ? preferences.getString("webUser", DEFAULT_WEB_USER) : DEFAULT_WEB_USER;
+  config.webPass    = preferences.isKey("webPass")    ? preferences.getString("webPass", DEFAULT_WEB_PASS) : DEFAULT_WEB_PASS;
 
-  config.pushCount = (int)preferences.getUChar("pushCount", 5);
+  config.pushCount = preferences.isKey("pushCount") ? (int)preferences.getUChar("pushCount", 5) : 5;
   if (config.pushCount < 1) config.pushCount = 1;
   if (config.pushCount > MAX_PUSH_CHANNELS) config.pushCount = MAX_PUSH_CHANNELS;
 
   for (int i = 0; i < MAX_PUSH_CHANNELS; i++) {
-    char prefix[8], key[16];
-    snprintf(prefix, sizeof(prefix), "push%d", i);
-    snprintf(key, sizeof(key), "%sen", prefix);
-    config.pushChannels[i].enabled    = preferences.getBool(key, false);
-    snprintf(key, sizeof(key), "%stype", prefix);
-    config.pushChannels[i].type       = (PushType)preferences.getUChar(key, PUSH_TYPE_POST_JSON);
-    snprintf(key, sizeof(key), "%surl", prefix);
-    config.pushChannels[i].url        = preferences.getString(key, "");
-    snprintf(key, sizeof(key), "%sname", prefix);
-    { char defName[12]; snprintf(defName, sizeof(defName), "通道%d", i + 1);
-      config.pushChannels[i].name = preferences.isKey(key) ? preferences.getString(key, defName) : defName; }
-    snprintf(key, sizeof(key), "%sk1", prefix);
-    config.pushChannels[i].key1       = preferences.getString(key, "");
-    snprintf(key, sizeof(key), "%sk2", prefix);
-    config.pushChannels[i].key2       = preferences.getString(key, "");
-    snprintf(key, sizeof(key), "%sbody", prefix);
-    config.pushChannels[i].customBody = preferences.getString(key, "");
-    snprintf(key, sizeof(key), "%sretry", prefix);
-    config.pushChannels[i].retryOnFail = preferences.getBool(key, false);
+    String prefix = "push" + String(i);
+    config.pushChannels[i].enabled    = preferences.getBool((prefix + "en").c_str(), false);
+    config.pushChannels[i].type       = (PushType)preferences.getUChar((prefix + "type").c_str(), PUSH_TYPE_POST_JSON);
+    config.pushChannels[i].url        = preferences.isKey((prefix + "url").c_str())  ? preferences.getString((prefix + "url").c_str(),  "")                    : "";
+    config.pushChannels[i].name       = preferences.isKey((prefix + "name").c_str()) ? preferences.getString((prefix + "name").c_str(), "通道" + String(i + 1)) : "通道" + String(i + 1);
+    config.pushChannels[i].key1       = preferences.isKey((prefix + "k1").c_str())   ? preferences.getString((prefix + "k1").c_str(),   "")                    : "";
+    config.pushChannels[i].key2       = preferences.isKey((prefix + "k2").c_str())   ? preferences.getString((prefix + "k2").c_str(),   "")                    : "";
+    config.pushChannels[i].customBody = preferences.isKey((prefix + "body").c_str()) ? preferences.getString((prefix + "body").c_str(), "")                    : "";
+    config.pushChannels[i].retryOnFail = preferences.getBool((prefix + "retry").c_str(), false);
   }
 
   // 兼容旧配置：迁移旧 httpUrl 到第一个通道
-  String oldHttpUrl = preferences.getString("httpUrl", "");
+  String oldHttpUrl = preferences.isKey("httpUrl") ? preferences.getString("httpUrl", "") : "";
   if (oldHttpUrl.length() > 0 && !config.pushChannels[0].enabled) {
     config.pushChannels[0].enabled = true;
     config.pushChannels[0].url     = oldHttpUrl;
@@ -50,7 +40,7 @@ void loadConfig() {
     LOG("Config", "已迁移旧HTTP配置到推送通道1");
   }
 
-  config.simNotifyEnabled = preferences.getBool("simNotify", false);
+  config.simNotifyEnabled = preferences.isKey("simNotify") ? preferences.getBool("simNotify", false) : false;
   config.dataTraffic       = preferences.getBool("dataTraffic", false);
 
   // Multi-WiFi: 读取 wifiCount，如不存在则迁移旧单 WiFi 键（FR-017）
@@ -59,16 +49,15 @@ void loadConfig() {
     if (config.wifiCount < 0) config.wifiCount = 0;
     if (config.wifiCount > MAX_WIFI_ENTRIES) config.wifiCount = MAX_WIFI_ENTRIES;
     for (int i = 0; i < config.wifiCount; i++) {
-      char ks[16], kp[16];
-      snprintf(ks, sizeof(ks), "wifi%dssid", i);
-      snprintf(kp, sizeof(kp), "wifi%dpass", i);
-      config.wifiList[i].ssid     = preferences.getString(ks, "");
-      config.wifiList[i].password = preferences.getString(kp, "");
+      String ks = "wifi" + String(i) + "ssid";
+      String kp = "wifi" + String(i) + "pass";
+      config.wifiList[i].ssid     = preferences.isKey(ks.c_str()) ? preferences.getString(ks.c_str(), "") : "";
+      config.wifiList[i].password = preferences.isKey(kp.c_str()) ? preferences.getString(kp.c_str(), "") : "";
     }
   } else {
     // 迁移旧单 WiFi 键
-    String legacySsid = preferences.getString("wifiSsid", "");
-    String legacyPass = preferences.getString("wifiPass",  "");
+    String legacySsid = preferences.isKey("wifiSsid") ? preferences.getString("wifiSsid", "") : "";
+    String legacyPass = preferences.isKey("wifiPass")  ? preferences.getString("wifiPass",  "") : "";
     if (legacySsid.length() > 0) {
       config.wifiList[0].ssid     = legacySsid;
       config.wifiList[0].password = legacyPass;
@@ -79,14 +68,13 @@ void loadConfig() {
     }
   }
 
-  config.pushStrategy = (PushStrategy)preferences.getUChar("pushStrategy", 0);
+  config.pushStrategy = (PushStrategy)(preferences.isKey("pushStrategy") ? preferences.getUChar("pushStrategy", 0) : 0);
 
   config.blacklistCount = preferences.getInt("blCount", 0);
   if (config.blacklistCount > MAX_BLACKLIST_ENTRIES) config.blacklistCount = MAX_BLACKLIST_ENTRIES;
   for (int i = 0; i < config.blacklistCount; i++) {
-    char key[8];
-    snprintf(key, sizeof(key), "bl%d", i);
-    config.blacklist[i] = preferences.getString(key, "");
+    String key = "bl" + String(i);
+    config.blacklist[i] = preferences.getString(key.c_str(), "");
   }
 
   preferences.end();
@@ -101,15 +89,15 @@ void saveConfig() {
 
   preferences.putUChar("pushCount", (uint8_t)config.pushCount);
   for (int i = 0; i < MAX_PUSH_CHANNELS; i++) {
-    char key[16];
-    snprintf(key, sizeof(key), "push%den", i);    preferences.putBool(key,   config.pushChannels[i].enabled);
-    snprintf(key, sizeof(key), "push%dtype", i);  preferences.putUChar(key,  (uint8_t)config.pushChannels[i].type);
-    snprintf(key, sizeof(key), "push%durl", i);   preferences.putString(key, config.pushChannels[i].url);
-    snprintf(key, sizeof(key), "push%dname", i);  preferences.putString(key, config.pushChannels[i].name);
-    snprintf(key, sizeof(key), "push%dk1", i);    preferences.putString(key, config.pushChannels[i].key1);
-    snprintf(key, sizeof(key), "push%dk2", i);    preferences.putString(key, config.pushChannels[i].key2);
-    snprintf(key, sizeof(key), "push%dbody", i);  preferences.putString(key, config.pushChannels[i].customBody);
-    snprintf(key, sizeof(key), "push%dretry", i); preferences.putBool(key,   config.pushChannels[i].retryOnFail);
+    String prefix = "push" + String(i);
+    preferences.putBool((prefix + "en").c_str(),   config.pushChannels[i].enabled);
+    preferences.putUChar((prefix + "type").c_str(), (uint8_t)config.pushChannels[i].type);
+    preferences.putString((prefix + "url").c_str(), config.pushChannels[i].url);
+    preferences.putString((prefix + "name").c_str(), config.pushChannels[i].name);
+    preferences.putString((prefix + "k1").c_str(),  config.pushChannels[i].key1);
+    preferences.putString((prefix + "k2").c_str(),  config.pushChannels[i].key2);
+    preferences.putString((prefix + "body").c_str(), config.pushChannels[i].customBody);
+    preferences.putBool((prefix + "retry").c_str(), config.pushChannels[i].retryOnFail);
   }
 
   preferences.putBool("simNotify",    config.simNotifyEnabled);
@@ -117,20 +105,18 @@ void saveConfig() {
 
   preferences.putUChar("wifiCount", (uint8_t)config.wifiCount);
   for (int i = 0; i < config.wifiCount; i++) {
-    char ks[16], kp[16];
-    snprintf(ks, sizeof(ks), "wifi%dssid", i);
-    snprintf(kp, sizeof(kp), "wifi%dpass", i);
-    preferences.putString(ks, config.wifiList[i].ssid);
-    preferences.putString(kp, config.wifiList[i].password);
+    String ks = "wifi" + String(i) + "ssid";
+    String kp = "wifi" + String(i) + "pass";
+    preferences.putString(ks.c_str(), config.wifiList[i].ssid);
+    preferences.putString(kp.c_str(), config.wifiList[i].password);
   }
 
   preferences.putUChar("pushStrategy", (uint8_t)config.pushStrategy);
 
   preferences.putInt("blCount", config.blacklistCount);
   for (int i = 0; i < config.blacklistCount; i++) {
-    char key[8];
-    snprintf(key, sizeof(key), "bl%d", i);
-    preferences.putString(key, config.blacklist[i]);
+    String key = "bl" + String(i);
+    preferences.putString(key.c_str(), config.blacklist[i]);
   }
 
   preferences.end();
