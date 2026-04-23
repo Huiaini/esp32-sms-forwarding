@@ -44,6 +44,9 @@ static TrafficSM s_tsm;
 // ---------- T005: AT helpers ----------
 
 static bool sendATandWaitOK(const char* cmd, unsigned long timeout) {
+  if (simDispatcherRunning()) {
+    return simSendCommand(cmd, timeout, nullptr, false);
+  }
   while (Serial1.available()) Serial1.read();
   Serial1.println(cmd);
   unsigned long start = millis();
@@ -131,16 +134,21 @@ static void simTrafficTick() {
 // ---------- T006 helper: CEREG polling ----------
 
 static bool waitCEREG() {
-  Serial1.println("AT+CEREG?");
-  unsigned long start = millis();
   String resp;
-  while (millis() - start < 2000) {
-    while (Serial1.available()) { char c = Serial1.read(); resp += c; }
-    if (resp.indexOf("+CEREG:") >= 0) {
-      if (resp.indexOf(",1") >= 0 || resp.indexOf(",5") >= 0) return true;
-      if (resp.indexOf(",0") >= 0 || resp.indexOf(",2") >= 0 ||
-          resp.indexOf(",3") >= 0 || resp.indexOf(",4") >= 0) return false;
+  if (simDispatcherRunning()) {
+    simSendCommand("AT+CEREG?", 2000, &resp, false);
+  } else {
+    Serial1.println("AT+CEREG?");
+    unsigned long start = millis();
+    while (millis() - start < 2000) {
+      while (Serial1.available()) { char c = Serial1.read(); resp += c; }
+      if (resp.indexOf("+CEREG:") >= 0) break;
     }
+  }
+  if (resp.indexOf("+CEREG:") >= 0) {
+    if (resp.indexOf(",1") >= 0 || resp.indexOf(",5") >= 0) return true;
+    if (resp.indexOf(",0") >= 0 || resp.indexOf(",2") >= 0 ||
+        resp.indexOf(",3") >= 0 || resp.indexOf(",4") >= 0) return false;
   }
   return false;
 }

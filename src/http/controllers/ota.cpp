@@ -40,8 +40,8 @@ void otaStatusController(AsyncWebServerRequest* request) {
 void otaVersionController(AsyncWebServerRequest* request) {
     OtaStatusPayload status = otaGetStatus();
 
-    // 仅 IDLE 状态且尚未有版本信息时触发版本检查（不下载固件）
-    if (status.state == OtaState::IDLE && status.latestVersion.isEmpty()) {
+    // 每次请求时若当前空闲则触发新一轮版本检查（不使用缓存，保证显示最新版本）
+    if (status.state == OtaState::IDLE) {
         otaStartVersionCheck();
         status = otaGetStatus();
     }

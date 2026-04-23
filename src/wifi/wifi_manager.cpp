@@ -60,6 +60,7 @@ void wifiManagerInit() {
         if (WiFi.status() == WL_CONNECTED) {
           s_mode = WIFI_MODE_STA_CONNECTED;
           s_everConnected = true;
+          WiFi.setSleep(false);  // 关闭 WiFi Modem Sleep，避免 TCP SYN 丢包导致 3 秒连接延迟
           LOG("WiFi", "第 %d/%d 条WiFi第 %d/%d 次连接成功，IP: %s", w + 1, config.wifiCount, attempt, WIFI_RECONNECT_ATTEMPTS_PER_SSID, WiFi.localIP().toString().c_str());
           return;
         }
@@ -121,6 +122,7 @@ void wifiManagerTick() {
       if (WiFi.status() == WL_CONNECTED) {
         s_mode        = WIFI_MODE_STA_CONNECTED;
         s_reconnState = RECONNECT_IDLE;
+        WiFi.setSleep(false);  // 重连后重新关闭 Modem Sleep
         LOG("WiFi", "重连成功，SSID: %s，IP: %s", config.wifiList[s_reconnWIdx].ssid.c_str(), WiFi.localIP().toString().c_str());
         if (s_reconnectCb) s_reconnectCb();
       } else if (millis() - s_lastAttemptMs >= WIFI_RECONNECT_INTERVAL_MS) {

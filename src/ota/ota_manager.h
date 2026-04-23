@@ -27,7 +27,8 @@ static const char* const OTA_RELEASES_BASE_URL = "https://github.com/maxming2333
 static const char* const OTA_LATEST_URL = "https://github.com/maxming2333/esp32-sms-forwarding/releases/latest";
 
 // FreeRTOS 任务栈大小（字节）
-static constexpr uint32_t OTA_TASK_STACK_SIZE = 8192;
+// HTTPS 下载 + OTA 写入涉及 TLS 握手及较深的调用栈，适当增大以防溢出
+static constexpr uint32_t OTA_TASK_STACK_SIZE = 12288;
 
 // FreeRTOS 任务优先级
 static constexpr UBaseType_t OTA_TASK_PRIORITY = 1;

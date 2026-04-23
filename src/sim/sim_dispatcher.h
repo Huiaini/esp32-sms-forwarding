@@ -117,3 +117,23 @@ bool simSendCommand(const char* cmd,
  *       应在推送内容组装阶段调用一次，不缓存结果。
  */
 String simQueryPhoneNumber(unsigned long timeoutMs = 3000);
+
+// ---------- Reader task 控制（供直接操作 Serial1 的代码使用） ----------
+
+/**
+ * @brief 挂起 SIM reader task，使调用方可独占访问 Serial1。
+ *        必须与 simResumeReader() 配对使用。
+ *        在 simDispatcherStart() 之前调用无效。
+ */
+void simPauseReader();
+
+/**
+ * @brief 恢复 SIM reader task（与 simPauseReader() 配对）。
+ */
+void simResumeReader();
+
+/**
+ * @brief 返回 dispatcher 队列是否已创建（即 simDispatcherStart() 是否已调用）。
+ *        可用于区分 setup 阶段（直接 Serial1）和运行阶段（队列路由）。
+ */
+bool simDispatcherRunning();

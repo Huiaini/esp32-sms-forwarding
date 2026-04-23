@@ -3,6 +3,7 @@
 #include "push/push.h"
 #include "logger.h"
 #include "phone_utils.h"
+#include "sim/sim_dispatcher.h"
 #include <pdulib.h>
 #include <WiFi.h>
 #include <esp_task_wdt.h>
@@ -136,8 +137,7 @@ static int ucs2ByteLen(const char* s, int maxUcs2) {
 }
 
 // 发送单条 PDU（可携带长短信参数，csms/numParts/partNum 全为 0 表示普通短信）
-static bool sendOnePDU(const char* phoneNumber, const char* message,
-                       unsigned short csms, unsigned char numParts, unsigned char partNum) {
+static bool sendOnePDU(const char* phoneNumber, const char* message, unsigned short csms, unsigned char numParts, unsigned char partNum) {
   pdu.setSCAnumber();
   int pduLen = pdu.encodePDU(phoneNumber, message, csms, numParts, partNum);
   if (pduLen < 0) {
@@ -151,6 +151,7 @@ static bool sendOnePDU(const char* phoneNumber, const char* message,
   LOG("SMS", "PDU长度=%d，PDU前16字符: %.16s", pduLen, pdu.getSMS());
 
   String cmgsCmd = "AT+CMGS="; cmgsCmd += pduLen;
+  simPauseReader();
   while (Serial1.available()) Serial1.read();
   Serial1.println(cmgsCmd);
 
@@ -163,7 +164,11 @@ static bool sendOnePDU(const char* phoneNumber, const char* message,
       if (c == '>') { gotPrompt = true; break; }
     }
   }
-  if (!gotPrompt) { LOG("SMS", "未收到>提示符"); return false; }
+  if (!gotPrompt) {
+    simResumeReader();
+    LOG("SMS", "未收到>提示符");
+    return false;
+  }
 
   // getSMS() 末尾已含 CTRL+Z (0x1A)，直接发送，无需再追加
   Serial1.print(pdu.getSMS());
@@ -182,19 +187,26 @@ static bool sendOnePDU(const char* phoneNumber, const char* message,
         cmgsSeenAt  = millis();
       }
       // OK 是事务完成的最终标志
-      if (resp.indexOf("OK") >= 0) { LOG("SMS", "短信发送成功"); return true; }
+      if (resp.indexOf("OK") >= 0) {
+        simResumeReader();
+        LOG("SMS", "短信发送成功");
+        return true;
+      }
       // 没有 +CMGS: 就出现 ERROR，才是真正失败
       if (!cmgsSeen && resp.indexOf("ERROR") >= 0) {
+        simResumeReader();
         LOG("SMS", "短信发送失败，响应: %s", resp.c_str());
         return false;
       }
     }
     // +CMGS: 已确认但 2s 内没收到 OK（modem 已入队）→ 视为成功
     if (cmgsSeen && millis() - cmgsSeenAt >= 2000) {
+      simResumeReader();
       LOG("SMS", "短信发送成功（+CMGS已确认）");
       return true;
     }
   }
+  simResumeReader();
   LOG("SMS", "短信发送超时，已收到: %s", resp.c_str());
   return false;
 }

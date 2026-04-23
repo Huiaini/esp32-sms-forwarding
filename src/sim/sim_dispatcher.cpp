@@ -194,6 +194,18 @@ bool simSendCommand(const char* cmd, unsigned long timeoutMs,
     return slot.isOk;
 }
 
+void simPauseReader() {
+    if (s_task != nullptr) vTaskSuspend(s_task);
+}
+
+void simResumeReader() {
+    if (s_task != nullptr) vTaskResume(s_task);
+}
+
+bool simDispatcherRunning() {
+    return s_queue != nullptr;
+}
+
 String simQueryPhoneNumber(unsigned long timeoutMs) {
     String resp;
     bool ok = simSendCommand("AT+CNUM", timeoutMs, &resp, false);

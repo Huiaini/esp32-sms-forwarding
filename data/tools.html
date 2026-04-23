@@ -641,13 +641,24 @@
       fetch('/api/ota/status')
         .then(function(r) { return r.json(); })
         .then(function(d) {
-          renderOtaStatus(d);
+          // 先清标志、停轮询，再渲染；这样 renderOtaStatus 看到的 otaInUpgrade 已是最终值
           if (d.state === 'success' || d.state === 'failed' || d.state === 'idle') {
             stopOtaPolling();
-            if (d.state !== 'idle') otaInUpgrade = false;
+            otaInUpgrade = false;
           }
+          renderOtaStatus(d);
         })
-        .catch(function() {});
+        .catch(function() {
+          // 设备可能正在 OTA 重启，给用户提示而非静默失败
+          if (otaInUpgrade) {
+            var p = document.getElementById('otaProgress');
+            if (p) {
+              p.className = 'result-box result-loading';
+              p.style.display = 'block';
+              p.textContent = '设备升级重启中，请稍候...';
+            }
+          }
+        });
     }
 
     function startOtaPolling() {
@@ -667,7 +678,8 @@
         .then(function(r) { return r.json(); })
         .then(function(d) {
           renderOtaStatus(d);
-          if (d.state !== 'idle' && d.state !== 'success' && d.state !== 'failed') {
+          // 只要版本号还没拿到就启动轮询（后端任务异步启动，首次响应可能仍是 idle+空版本）
+          if (!d.latestVersion) {
             startOtaPolling();
           }
         })

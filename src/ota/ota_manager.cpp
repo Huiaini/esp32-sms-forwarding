@@ -158,10 +158,12 @@ static void onlineUpgradeTask(void* /*param*/) {
     int totalWritten = 0;
     int remaining    = contentLen;
     bool dlFailed    = false;
+    unsigned long lastDataMs = millis();  // 用于检测无数据超时
 
     while (dlHttp.connected() && (remaining > 0 || remaining == -1)) {
         int available = dlStream->available();
         if (available > 0) {
+            lastDataMs = millis();  // 收到数据，重置超时计时器
             int toRead  = min(available, (int)sizeof(dlBuf));
             int readLen = dlStream->readBytes(dlBuf, toRead);
             if (readLen > 0) {
@@ -178,11 +180,23 @@ static void onlineUpgradeTask(void* /*param*/) {
                 }
             }
         } else {
+            // 无数据可读：检查是否超时（防止 TCP 连接活着但数据停止时无限挂起）
+            if (millis() - lastDataMs > (unsigned long)OTA_HTTP_TIMEOUT_MS) {
+                LOG("OTA", "固件下载超时：%d ms 内无数据，已写入 %d/%d 字节", OTA_HTTP_TIMEOUT_MS, totalWritten, contentLen);
+                dlFailed = true;
+                break;
+            }
             vTaskDelay(pdMS_TO_TICKS(10));
         }
     }
 
     dlHttp.end();
+
+    if (!dlFailed && contentLen > 0 && totalWritten < contentLen) {
+        LOG("OTA", "固件下载不完整：%d/%d 字节", totalWritten, contentLen);
+        esp_ota_abort(g_otaHandle);
+        otaTaskAbort("固件下载不完整 (" + String(totalWritten) + "/" + String(contentLen) + " 字节)");
+    }
 
     if (dlFailed) {
         esp_ota_abort(g_otaHandle);
