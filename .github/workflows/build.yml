@@ -174,17 +174,17 @@ jobs:
 
           **首次安装**（新设备或需要重置所有配置）：
           \`\`\`bash
-          esptool --chip esp32c3 --baud 115200 write_flash 0x0 full-${VERSION_TAG}.bin
+          esptool --chip esp32c3 --baud 921600 write_flash 0x0 full-${VERSION_TAG}.bin
           \`\`\`
 
           **固件升级**（保留 WiFi 等配置，推荐日常更新）：
           \`\`\`bash
-          esptool --chip esp32c3 --baud 115200 write_flash 0x10000 update-${VERSION_TAG}.bin
+          esptool --chip esp32c3 --baud 921600 write_flash 0x10000 update-${VERSION_TAG}.bin
           \`\`\`
 
           **仅更新 Web UI**（保留固件和配置）：
           \`\`\`bash
-          esptool --chip esp32c3 --baud 115200 write_flash 0x290000 littlefs-${VERSION_TAG}.bin
+          esptool --chip esp32c3 --baud 921600 write_flash 0x290000 littlefs-${VERSION_TAG}.bin
           \`\`\`
 
           ## SHA256 校验
