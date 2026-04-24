@@ -153,7 +153,7 @@ jobs:
           > 浏览器要求：Chrome 或 Edge（Firefox / Safari 不支持 Web Serial API）
           
           **连接**：
-          1. 波特率选择 \`115200\`
+          1. 波特率选择 \`921600\`
           2. 点击「连接」，在浏览器弹窗中选择 "USB JTAG/serial debug unit" 设备
 
           **首次安装**（新设备或需要重置配置）：
